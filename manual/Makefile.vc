@@ -1,0 +1,146 @@
+#PERL=$(TOOLS_DIR)\perl\bin\perl.exe
+PERL=C:\OMNEST\msys\bin\perl.exe
+INKSCAPE="C:\Program Files\inkscape\inkscape.exe"
+DOT=$(TOOLS_DIR)\Graphviz\bin\dot.exe
+PDFTK=$(TOOLS_DIR)\pdftk\pdftk
+
+CWD=$(OMNETPP_ROOT)\doc\src\manual  # because Inkscape is broken and needs full paths
+
+TITLE=User Manual
+
+# --- generating pdf ---
+
+TEXCHAPTERS = \
+         ch-introduction.tex \
+         ch-overview.tex \
+         ch-ned-lang.tex \
+         ch-simple-modules.tex \
+         ch-messages.tex \
+         ch-sim-lib.tex \
+         ch-build-sim-progs.tex \
+         ch-config-sim.tex \
+         ch-run-sim.tex \
+         ch-graphics.tex \
+         ch-ana-sim.tex \
+         ch-eventlog.tex \
+         ch-neddoc.tex \
+         ch-parallel-exec.tex \
+         ch-plugin-exts.tex \
+         ch-embedding.tex \
+         appendix-ned-ref.tex \
+         appendix-ned-grammar.tex \
+         appendix-ned-dtd.tex \
+         appendix-ned-functions.tex \
+         appendix-msg-grammar.tex \
+         appendix-display-strings.tex \
+         appendix-config-options.tex \
+         appendix-result-file-formats.tex \
+         appendix-eventlog-file-format.tex
+ALLTEX = usman.tex title.tex $(TEXCHAPTERS)
+HTMCHAPTERS = $(TEXCHAPTERS:.tex=.htm)
+
+# must list all SVGs because nmake is broken and has no wildcard functionality
+SVGPICS = \
+        figures\embed-architecture.svg \
+        figures\parsim-cqn-model.svg \
+        figures\simlib-ksplit1.svg \
+        figures\ned-hypercube.svg \
+        figures\parsim-cqn-partitioning.svg \
+        figures\simlib-ksplit2.svg \
+        figures\ned-loopconnextion.svg \
+        figures\parsim-placeholders2.svg \
+        figures\simlib-queue.svg \
+        figures\parsim-placeholders.svg \
+        figures\simple-gates.svg \
+        figures\over-modules.svg \
+        figures\simlib-histogramcells.svg \
+        figures\simlib-histogramrange.svg \
+        figures\transmission.svg \
+        figures\parsim-arch.svg \
+        figures\simlib-histogramsetup.svg
+
+
+DOTPICS = figures\build-workflow.dot figures\ned-net6-topology.dot figures\component-inheritance.dot
+
+PDFPICS = $(SVGPICS:.svg=.pdf) $(DOTPICS:.dot=.pdf)
+
+# an imperfect attempt to filter out less important warnings...
+# LOGFILTER = | sed '/Underfull/{N;N;d;};/Overfull/{N;N;d;};/Token not allowed/{N;N;d;}'
+LOGFILTER =
+
+default: pdf html eclipse
+
+include ../cover/cover.makefrag.vc
+
+pdf: $(ALLTEX) $(DOTPICS:.dot=.svg) $(PDFPICS) figures/*.png cover
+	pdflatex -aux-directory=tmp usman.tex $(LOGFILTER)
+	bibtex tmp/usman
+	makeindex tmp/usman
+	pdflatex -aux-directory=tmp usman.tex $(LOGFILTER)
+	pdflatex -aux-directory=tmp usman.tex $(LOGFILTER)
+	-del tmp.pdf
+	ren usman.pdf tmp.pdf
+	$(PDFTK) C=cover.pdf B=../cover/copyright.pdf D=tmp.pdf cat C B D3-end output usman.pdf dont_ask
+	copy usman.pdf ..\..\manual\Manual.pdf
+
+.svg.pdf:
+	$(INKSCAPE) $(CWD)\$< -A $(CWD)\$@
+
+.dot.svg:
+	$(DOT) -Tsvg $< >$@
+
+# --- generating html ---
+
+.SUFFIXES: .tex .bbl .htm .svg .dot
+
+#usman-bibl.bbl : usman.bbl
+#	copy usman.bbl usman-bibl.bbl
+
+.svg.png:
+	$(INKSCAPE) $< -e $@
+
+.dot.png:
+	$(DOT) -Tpng $< >$@
+
+.bbl.htm:
+	copy $< $(<:.bbl=.tex)
+	$(PERL) ltoh.pl $(<:.bbl=.tex)
+	del $(<:.bbl=.tex)
+
+.tex.htm:
+	$(PERL) ltoh.pl $<
+
+eclipse : $(HTMCHAPTERS) $(PNGPICS) eclipse.thtml prephtml2 ltoh.specs ltoh.pl
+	:#FIXME use tmp dir
+	@echo. > usman.tmp
+	for %%i in ($(HTMCHAPTERS)) do type %i >> usman.tmp
+	$(PERL) prephtml2 --split --template eclipse.thtml usman.tmp
+	-del usman.tmp
+	-del /s /q eclipse
+	-rmdir eclipse
+	mkdir eclipse
+	move *.html eclipse
+	move toc.xml eclipse
+	copy *.png eclipse
+	copy figures\*.png eclipse
+
+html : $(HTMCHAPTERS) $(PNGPICS) omnest.thtml omnetpp.thtml prephtml2 ltoh.specs ltoh.pl
+	:#FIXME use tmp dir
+	@echo. > usman.tmp
+	for %%i in ($(HTMCHAPTERS)) do type %i >> usman.tmp
+	$(PERL) prephtml2 usman.tmp
+	del usman.tmp
+	copy usman.html ..\..\manual
+	copy *.png ..\..\manual
+	copy figures\*.png ..\..\manual
+
+clean:
+	-del usman.dvi usman.pdf *.aux *.idx *.ilg *.ind *.log *.out *.toc *.bbl *.blg *.htm usman.tmp usman.html cover.svg cover.pdf
+	-del /s /q ..\..\manual 2>nul
+	-rmdir ..\..\manual 2>nul
+	-del /s /q eclipse
+	-rmdir eclipse
+	-del /q figures\*.pdf
+	-cd figures && for %%I in (*.svg) do del %%~nI.png
+	-cd figures && for %%I in (*.dot) do del %%~nI.svg
+

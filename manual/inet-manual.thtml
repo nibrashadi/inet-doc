@@ -2,7 +2,7 @@
 <HTML>
 <HEAD>
    <TITLE>OMNeT++ - Manual</TITLE>
-   <META NAME="Author" CONTENT="Andras Varga">
+   <META NAME="Author" CONTENT="Andras Varga" et al.>
 </HEAD>
 
 <style type="text/css">
@@ -33,8 +33,8 @@ a:visited {text-decoration: none;}
 <br>
 <img src="omnetpp.png" border="0">
 <!--
-<h1><FONT COLOR="#FF0000"><B><FONT SIZE=+4>OMNeT++ </FONT></B>
-<I><FONT SIZE=+1>Discrete Event Simulation System</FONT></I></FONT></h1>
+<h1><FONT COLOR="#FF0000"><B><FONT SIZE=+2>INET Framework for OMNeT++ </FONT></B>
+<I><FONT SIZE=+1>Manual</FONT></I></FONT></h1>
 -->
 
 __BODY__

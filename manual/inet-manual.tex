@@ -24,9 +24,6 @@
 \usepackage{listings}   %% source code listings with syntax highlight (lstxxx commands)
 \usepackage[tight]{shorttoc}   %% for generating a second table of contents, only containing chapter titles
 
-\usepackage{tocbibind}  %% makes Bibliography and Index show up in TOC
-\settocbibname{References}
-
 \setlength{\textwidth}{160mm}
 %\setlength{\oddsidemargin}{12.5mm}
 %\setlength{\evensidemargin}{12.5mm}
@@ -317,8 +314,8 @@
 %\newpage
 %%\pagenumbering{roman}
 
-\shorttableofcontents{Chapters}{0}
-\cleardoublepage
+%% \shorttableofcontents{Chapters}{0}
+%% \cleardoublepage
 
 \tableofcontents
 \cleardoublepage
@@ -329,14 +326,6 @@
 \include{ch-introduction}
 \cleardoublepage
 
-%% \include{ch-overview}
-%% \cleardoublepage
-%% ...
-
-\nocite{*}
-\bibliographystyle{alpha}
-%% \bibliographystyle{ieeetr}
-\bibliography{manual}
 
 %% no need for the following since 'tocbibind' package
 %% \phantomsection

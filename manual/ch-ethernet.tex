@@ -1,0 +1,301 @@
+\chapter{The Ethernet Model}
+\label{cha:ethernet}
+
+
+\section{Overview}
+
+The Ethernet model contains a MAC model (\nedtype{EtherMAC}), LLC model (\nedtype{EtherLLC}) as well
+as a bus (\nedtype{EtherBus}, for modelling coaxial cable) and a hub (\nedtype{EtherHub}) model.
+A switch model (\nedtype{EtherSwitch}) is also provided.
+
+\begin{itemize}
+  \item \nedtype{EtherHost} is a sample node with an Ethernet NIC;
+  \item \nedtype{EtherSwitch}, \nedtype{EtherBus}, \nedtype{EtherHub} model switching hub, repeating hub and
+        the old coxial cable;
+  \item basic compnents of the model: \nedtype{EtherMAC}, \nedtype{EtherLLC}/\nedtype{EtherEncap} module types,
+        \nedtype{MACRelayUnit} (\nedtype{MACRelayUnitNP} and \nedtype{MACRelayUnitPP}), \nedtype{EtherFrame} message type,
+        \cppclass{MACAddress} class
+\end{itemize}
+
+Sample simulations:
+
+\begin{itemize}
+  \item the \nedtype{MixedLAN} model contains hosts, switch, hub and bus
+  \item the \nedtype{LargeNet} model contains hundreds of computers, switches and hubs
+        (numbers depend on model configuration in largenet.ini) and mixes all
+        kinds of Ethernet technologies
+\end{itemize}
+
+
+\section{Data packets and Ethernet frames}
+
+Ethernet frames carry data packets as encapsulated cMessage objects.
+Data packets can be of any message type (cMessage or cMessage subclass).
+
+The model encapsulates data packets in Ethernet frames using the \ttt{encapsulate()}
+method of cMessage. Encapsulate() updates the length of the Ethernet frame too,
+so the model doesn't have to take care of that.
+
+The models supports various Ethernet frame types: Ethernet II, 803.2 with
+LLC header, and 803.3 with LLC and SNAP headers. The corresponding classes are:
+\msgtype{EthernetIIFrame}, \msgtype{EtherFrameWithLLC} and \msgtype{EtherFrameWithSNAP}. They all class
+from \msgtype{EtherFrame} which only represents the basic MAC frame with source and
+destination addresses. \nedtype{EtherMAC} only deals with \msgtype{EtherFrame}s, and does not
+care about the specific subclass.
+
+
+\section{Autoconfiguration}
+
+In order to facilitate building large models, \nedtype{EtherMAC} and other Ethernet model
+components provide some degree of auto-configuration. Specifically, transmission
+rate and half duplex/full duplex mode can be chosen automatically so that
+connecting Ethernet MACs have matching settings. The purpose is similar to
+Ethernet Auto-Negotiation; however the mechanism is NOT a model of
+Auto-Negotiation (e.g. \nedtype{EtherBus} and \nedtype{EtherHub} also actively participate,
+which obviously does not happen in a real Ethernet.)
+
+What it does:
+
+\begin{itemize}
+  \item the txrate parameters of \nedtype{EtherMAC} represent the highest speed supported
+        by that station, or 0 for full autoconfiguration. Autoconfig will choose
+        the largest common denominator (the speed of the slowest station in the
+        collision domain) for all stations. If all stations are set to auto
+        txrate, 100Mb will be chosen, or 10Mb if there's a bus (\nedtype{EtherBus}) in
+        the collision domain.
+  \item the duplexEnabled parameter of \nedtype{EtherMAC} means whether the station supports
+        duplex operation. However, duplex operation will actually be chosen only
+        if it's a DTE-to-DTE direct connection (there's no shared media like
+        \nedtype{EtherHub} or \nedtype{EtherBus}) and both sides have duplexEnabled=true set.
+\end{itemize}
+
+How it works:
+
+Auto-configuration occurs at the beginning of the simulation, by
+Ethernet model components (\nedtype{EtherMAC}, \nedtype{EtherHub} and \nedtype{EtherBus}) exchanging
+\msgtype{EtherAutoconfig} messages with each other. See description of \msgtype{EtherAutoconfig}
+for more info.
+
+\section{MAC and higher layers}
+
+MAC and LLC are implemented as separate modules (\nedtype{EtherMAC} and
+\nedtype{EtherLLC}/\nedtype{EtherEncap}) because encapsulation/decapsulation functionality
+is not always needed. (Switches don't do encapsulation/decapsulation.)
+In switches, \nedtype{EtherMAC} is used with \nedtype{MACRelayUnit}.
+
+
+\section{\nedtype{EtherLLC} and higher layers}
+
+The \nedtype{EtherLLC} module can serve several applications (higher layer protocols),
+and dispatch data to them. Higher layers are identified by DSAP.
+See section "Application registration" for more info.
+
+\nedtype{EtherEncap} doesn't have the functionality to dispatch to different
+higher layers because in practice it'll always be used with IP.
+
+
+\section{Implemented Standards}
+
+The Ethernet model operates according to the following standards:
+
+\begin{itemize}
+  \item Gigabit Ethernet: IEEE 802.3z-1998
+  \item Full-Duplex Ethernet with Flow Control: IEEE 802.3x-1997
+  \item Fast Ethernet: IEEE 802.3u-1995
+  \item Ethernet: IEEE 802.3-1998
+\end{itemize}
+
+Note: switches don't implement the Spanning Tree Protocol. You need to
+avoid cycles in the LAN topology.
+
+
+\section{Communication between LLC and Higher Layers}
+
+Higher layers (applications or protocols) talk to the \nedtype{EtherLLC} module.
+
+When a higher layer wants to send a packet via Ethernet, it just
+passes the data packet (a cMessage or any subclass) to \nedtype{EtherLLC}.
+The message kind has to be set to IEEE802CTRL\_DATA.
+
+In general, if \nedtype{EtherLLC} receives a packet from the higher layers,
+it interprets the message kind as a command. The commands include
+IEEE802CTRL\_DATA (send a frame), IEEE802CTRL\_REGISTER\_DSAP (register highher layer)
+IEEE802CTRL\_DEREGISTER\_DSAP (deregister higher layer) and IEEE802CTRL\_SENDPAUSE
+(send PAUSE frame) -- see EtherLLC for a more complete list.
+
+The arguments to the command are NOT inside the data packet but
+in a "control info" data structure of class \cppclass{Ieee802Ctrl}, attached to
+the packet. See controlInfo() method of cMessage (OMNeT++ 3.0).
+
+For example, to send a packet to a given MAC address and protocol
+identifier, the application sets the data packet's message kind
+to ETH\_DATA ("please send this data packet" command),
+fills in the \nedtype{Ieee802Ctrl} structure with the destination MAC address and
+the protocol identifier, adds the control info to the message, then sends
+the packet to \nedtype{EtherLLC}.
+
+When the command doesn't involve a data packet (e.g.
+IEEE802CTRL\_(DE)REGISTER\_DSAP, IEEE802CTRL\_SENDPAUSE), a dummy packet
+(empty cMessage) is used.
+
+\section{Rationale}
+
+The alternative of the above communications would be:
+
+\begin{itemize}
+  \item adding the parameters such as destination address into the data
+    packet. This would be a poor solution since it would make the
+    higher layers specific to the Ethernet model.
+  \item encapsulating a data packet into an \textit{interface packet} which
+    contains the destination address and other parameters. The
+    disadvantages of this approach is the overhead associated with
+    creating and destroying the interface packets.
+\end{itemize}
+
+Using a control structure is more efficient than the interface packet
+approach, because the control structure can be created once inside
+the higher layer and be reused for every packet.
+
+It may also appear to be more intuitive in Tkenv because one can observe
+data packets travelling between the higher layer and Ethernet
+modules -- as opposed to "interface" packets.
+
+
+\section{EtherLLC: SAP Registration}
+
+The Ethernet model supports multiple applications or higher layer
+protocols.
+
+So that data arriving from the network can be dispatched to the
+correct applications (higher layer protocols), applications
+have to register themselves in \nedtype{EtherLLC}. The registration
+is done with the IEEE802CTRL\_REGISTER\_DSAP command
+(see section "Communication between LLC and higher layers")
+which associates a SAP with the LLC port. Different applications
+have to connect to different ports of \nedtype{EtherLLC}.
+
+The ETHERCTRL\_REGISTER\_DSAP/IEEE802CTRL\_DEREGISTER\_DSAP commands use only the
+dsap field in the \cppclass{Ieee802Ctrl} structure.
+
+
+\section{Messaging on the Physical Layer}
+
+Messages sent by \nedtype{EtherMAC} mark the beginning of a transmission.
+The end of a transmission is not explicitly represented by a message,
+but instead, the \nedtype{EtherMAC} calculates it from the frame length and
+the transmission rate. Frames are represented by \msgtype{EtherFrame}.
+
+When frames collide, the transmission is aborted -- in this case
+\nedtype{EtherMAC} makes use of the modelled jam signals to figure out
+when colliding transmissions end.
+
+When a transmitting station senses a collision, it transmits a jam signal.
+Jam signals are represented by a \msgtype{EtherJam} message.
+When \nedtype{EtherMAC} received a jam signal, it knows that one transmission
+has ended in jamming -- thus when it receives as many jam messages
+as colliding frames, it can be sure all transmissions have been aborted.
+
+Receiving a jam message marks the beginning (and not the end)
+of a jam signal, so actually \nedtype{EtherMAC} has to wait for the duration
+of the jamming before assuming the channel is free again.
+
+
+
+\section{PAUSE handling}
+
+The 802.3x standard supports PAUSE frames as a means of flow
+control. The frame contains a timer value, expressed as a multiple
+of 512 bit-times, that specifies how long the transmitter should
+remain quiet. If the receiver becomes uncongested before the
+transmitter's pause timer expires, the receiver may elect to send
+another Pause frame to the transmitter with a timer value of zero,
+allowing the transmitter to resume immediately.
+
+\nedtype{EtherMAC} will properly respond to PAUSE frames it receives
+(\msgtype{EtherPauseFrame} class),
+however it will never send a PAUSE frame by itself. (For one thing,
+it doesn't have an input buffer that can overflow.)
+
+\nedtype{EtherMAC}, however, transmits PAUSE frames received by higher layers,
+and \nedtype{EtherLLC} can be instructed by a command to send a PAUSE frame to MAC.
+
+\nedtype{MACRelayUnit} types (and thus \nedtype{EtherSwitch}) currently implement a very simple
+scheme for sending PAUSE frames -- this can be refined if the need arises.
+
+
+
+
+
+\section{\nedtype{LargeNet} model description}
+
+The \nedtype{LargeNet} model demonstrates how one can put together models of large
+LANs with little effort, making use of MAC auto-configuration.
+
+\nedtype{LargeNet} models a large Ethernet campus backbone. As configured in the
+default omnetpp.ini, it contains altogether about 8000 computers
+and 900 switches and hubs. This results in about 165MB process size
+on my (32-bit) linux box when I run the simulation.
+The model mixes all kinds of Ethernet technology: Gigabit Ethernet,
+100Mb full duplex, 100Mb half duplex, 10Mb UTP, 10Mb bus ("thin Ethernet"),
+switched hubs, repeating hubs.
+
+The topology is in \nedtype{LargeNet}.ned, and it looks like this: there's chain
+of n=15 large "backbone" switches (switchBB[]) as well as four more
+large switches (switchA, switchB, switchC, switchD) connected to
+somewhere the middle of the backbone (switchBB[4]). These 15+4 switches
+make up the backbone; the n=15 number is configurable in omnetpp.ini.
+
+Then there're several smaller LANs hanging off each backbone switch.
+There're three types of LANs: small, medium and large (represented by
+compound module types \nedtype{SmallLAN}, \nedtype{MediumLAN}, \nedtype{LargeLAN}). A small LAN
+consists of a few computers on a hub (100Mb half duplex); a medium
+LAN consists of a smaller switch with a hub on one of its port
+(and computers on both); the large one also has a switch and a hub,
+plus an Ethernet bus hanging of one port of the hub (there's still hubs
+around with one BNC connector besides the UTP ones).
+By default there're 5..15 LANs of each type hanging off each backbone
+switch. (These numbers are also omnetpp.ini parameters like the length
+of the backbone.)
+
+The application model which generates load on the simulated LAN is
+simple yet powerful. It can be used as a rough model for any
+request-response based protocol such as SMB/CIFS (the Windows file
+sharing protocol), HTTP, or a database client-server protocol.
+
+Every computer runs a client application (\nedtype{EtherAppCli}) which connects
+to one of the servers. There's one server attached to switches A, B,
+C and D each: serverA, serverB, serverC and serverD -- server selection
+is configured in omnetpp.ini). The servers run \nedtype{EtherAppSrv}.
+Clients periodically send a request to the server, and the request
+packet contains how many bytes the client wants the server to send back
+(this can mean one or more Ethernet frames, depending on the byte count).
+ Currently the request and reply lengths are configured in omnetpp.ini
+as intuniform(50,1400) and truncnormal(5000,5000).
+
+The volume of the traffic can most easily be controlled with the
+time period between sending requests; this is currently
+set in omnetpp.ini to exponential(0.50) (that is, average 2
+requests per second). This already causes frames to be dropped
+in some of the backbone switches, so the network is a bit
+overloaded with the current settings.
+
+The model generates extensive statistics. All MACs (and most other
+modules too) write statistics into omnetpp.sca at the end
+of the simulation: number of frames sent, received, dropped, etc.
+These are only basic statistics, however it still makes the
+scalar file to be several ten megabytes in size. You can use
+the analysis tools provided with OMNeT++ to visualized the data
+in this file. (If the file size is too big, writing statistics
+can be disabled, by putting **.record-scalar=false in the ini file.)
+The model can also record output vectors, but this is currently
+disabled in omnetpp.ini because the generated file can easily reach
+gigabyte sizes.
+
+
+
+%%% Local Variables:
+%%% mode: latex
+%%% TeX-master: "usman"
+%%% End:
+
+

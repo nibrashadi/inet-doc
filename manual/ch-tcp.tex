@@ -6,6 +6,111 @@
 
 Blah blah blah
 
+A TCP segment is represented by the class \msgtype{TCPSegment}.
+
+\subsection{Communication with clients}
+
+For communication between client applications and the \nedtype{TCP} module,
+the \cppclass{TcpCommandCode} and \cppclass{TcpStatusInd} enums are used as message kinds,
+and \cppclass{TCPCommand} and its subclasses are used as control info.
+
+To open a connection from a client app, send a \cppclass{cMessage} to \nedtype{TCP} with
+\ttt{TCP\_C\_OPEN\_ACTIVE} as message kind and a \cppclass{TCPOpenCommand} object filled in
+and attached to it as control info. (The peer \nedtype{TCP} will have to be LISTENing;
+the server app can achieve this with a similar \cppclass{cMessage} but \ttt{TCP\_C\_OPEN\_PASSIVE}
+message kind.) With passive open, there is a possibility to cause the connection
+"fork" on an incoming connection, leaving the original connection LISTENing
+on the port (see the \ttt{fork} field in \cppclass{TCPOpenCommand}).
+
+The client app can send data by assigning the \ttt{TCP\_C\_SEND} message kind
+and attaching a \cppclass{TCPSendCommand} control info object to the data packet,
+and sending it to \nedtype{TCP}. The server app will receive data as messages
+with the \ttt{TCP\_I\_DATA} message kind and \cppclass{TCPSendCommand} control info.
+(Whether you will receive the same or identical messages, or even whether
+you will receive data in the same sized chunks as sent depends on the
+\ttt{sendQueueClass} and \ttt{receiveQueueClass} used, see below. With
+\cppclass{TCPVirtualDataSendQueue} and \cppclass{TCPVirtualDataRcvQueue} set, message objects
+and even message boundaries are not preserved.)
+
+To close, the client sends a \cppclass{cMessage} to \nedtype{TCP} with the \ttt{TCP\_C\_CLOSE} message kind
+and \cppclass{TCPCommand} control info.
+
+\nedtype{TCP} sends notifications to the application whenever there is a significant
+change in the state of the connection: established, remote TCP closed,
+closed, timed out, connection refused, connection reset, etc. These
+notifications are also cMessages with message kind \ttt{TCP\_I\_xxx}
+(\ttt{TCP\_I\_ESTABLISHED}, etc.) and \cppclass{TCPCommand} as control info.
+
+One \nedtype{TCP} module can serve several application modules, and several
+connections per application. The $k$th application connects to \nedtype{TCP}'s
+\ttt{appIn[k]} and \ttt{appOut[k]} ports. When talking to applications, a
+connection is identified by the \textit{(application port index, connId)} pair,
+where \textit{connId} is assigned by the application in the OPEN call.
+
+\subsection{Sockets}
+
+The \cppclass{TCPSocket} C++ class is provided to simplify managing TCP connections
+from applications. \cppclass{TCPSocket} handles the job of assembling and sending
+command messages (OPEN, CLOSE, etc) to \nedtype{TCP}, and it also simplifies
+the task of dealing with packets and notification messages coming from \nedtype{TCP}.
+
+\subsection{Communication with the IP layer}
+
+The \nedtype{TCP} model relies on sending and receiving \cppclass{IPControlInfo} objects
+attached to TCP segment objects as control info (see \ttt{cMessage::setControlInfo()}).
+
+\subsection{Configuring TCP}
+
+The module parameters \ttt{sendQueueClass} and \ttt{receiveQueueClass} should be
+set the names of classes that manage the actual send and receive queues.
+Currently you have two choices:
+
+\begin{enumerate}
+  \item set them to "TCPVirtualDataSendQueue" and "TCPVirtualDataRcvQueue".
+     These classes manage "virtual bytes", that is, only byte counts are
+     transmitted over the TCP connection and no actual data. cMessage
+     contents, and even message boundaries are not preserved with these
+     classes: for example, if the client sends a single cMessage with
+     length = 1 megabyte over TCP, the receiver-side client will see a
+     sequence of MSS-sized messages.
+
+  \item use "TCPMsgBasedSendQueue" and "TCPMsgBasedRcvQueue", which transmit
+     cMessage objects (and subclasses) over a TCP connection. The same
+     message object sequence that was sent by the client to the
+     sender-side TCP entity will be reproduced on the receiver side.
+     If a client sends a cMessage with length = 1 megabyte, the
+     receiver-side client will receive the same message object (or a clone)
+     after the TCP entities have completed simulating the transmission
+     of 1 megabyte over the connection. This is a different behaviour
+     from TCPVirtualDataSendQueue/RcvQueue.
+\end{enumerate}
+
+It depends on the client (app) modules which sendQueue/rcvQueue they require.
+For example, the \nedtype{TCPGenericSrvApp} module type needs message-based
+sendQueue/rcvQueue, while \nedtype{TCPEchoApp} or \nedtype{TCPSinkApp} can work
+with both (but \nedtype{TCPEchoApp} will display different behaviour!)
+In the future, other send queue and receive queue classes may be implemented,
+e.g. to allow transmission of "raw bytes" (actual byte arrays).
+
+The TCP flavour supported depends on the value of the tcpAlgorithmClass
+module parameters, e.g. "TCPTahoe" or "TCPReno". In the future, other
+classes can be written which implement Vegas, LinuxTCP (which
+differs from others) or other variants.
+
+Note that TCPOpenCommand allows sendQueueClass, receiveQueueClass and
+tcpAlgorithmClass to be chosen per-connection.
+
+Further parameters are described in the NED file.
+
+Notes:
+ - if you do active OPEN, then send data and close before the connection
+   has reached ESTABLISHED, the connection will go from SYN\_SENT to CLOSED
+   without actually sending the buffered data. This is consistent with
+   RFC 793 but may not be what you would expect.
+ - handling segments with SYN+FIN bits set (esp. with data too) is
+   inconsistent across TCPs, so check this one if it is of importance
+
+
 
 %%% Local Variables:
 %%% mode: latex

@@ -1,0 +1,97 @@
+\chapter{Node Architecture}
+\label{cha:node-architecture}
+
+
+\section{Overview}
+
+Blah blah blah
+
+
+
+\section{Common modules in hosts and routers}
+
+There are some common modules that appear in all (or many) host, router and device
+models.
+
+\nedtype{InterfaceTable}:
+This module contains the table of network interfaces
+(eth0, wlan0, etc) in the host. This module does not send or receive messages:
+it is accessed by other modules using standard C++ member function calls.
+Other modules rely on the interface table submodule within the host to be called
+\ttt{interfaceTable} to be able to find it. (They obtain a \ttt{cModule *}
+pointer to it, then cast it to \ttt{InterfaceTable *} to be able to call its
+functions). Network interfaces get dynamically registered (added to the table)
+by simple modules implementing the network interface, for example \nedtype{EtherMAC}.
+
+\nedtype{RoutingTable}:
+This module contains the IP (v4) routing table, and heavily relies
+on \nedtype{InterfaceTable} for its operation. This module is also accessed from other
+modules (typically IP) by calling the public member functions of its C++ class.
+There are member functions for querying, adding, deleting routes, and
+finding the best matching route for a given destination IP address.
+The routing table submodule within the host (router) must be called
+\ttt{routingTable} for other modules to find it.
+
+\nedtype{RoutingTable6}. This is like \nedtype{RoutingTable}, but for IPv6.
+
+\nedtype{NotificationBoard}. This module makes it possible for several modules to
+communicate in a publish-subscribe manner. For example, the radio module
+(\nedtype{Ieee80211Radio}) fires a \textit{"radio state changed"} notification when
+the state of the radio channel changes (from TRANSMIT to IDLE, for example),
+and it will be delivered to other modules that have previously subscribed
+to that notification category. The notification mechanism also works
+my C++ functions calls, no message sending is involved.
+The notification board submodule within the host (router) must be called
+\ttt{notificationBoard} for other modules to find it.
+
+
+\section{Common modules at network level}
+
+Some modules have only one instance, at global network level:
+
+\nedtype{FlatNetworkConfigurator} assigns IP addresses to hosts and routers,
+and sets up static routing.
+
+\nedtype{ScenarioManager} makes simulations scriptable. Modules can be made to support
+scripting by implementing the \cppclass{IScriptable} C++ interface.
+
+\nedtype{ChannelControl} is required for wireless simulations. It keeps track of which
+nodes are within interference distance of other nodes.
+
+
+\section{Communication between protocol layers}
+
+In the INET Framework, when an upper-layer protocol wants to send a data
+packet over a lower-layer protocol, the upper-layer module just sends the
+message object representing the packet to the lower-layer module, which
+will in turn encapsulate it and send it. The reverse process takes place
+when a lower layer protocol receives a packet and sends it up after
+decapsulation.
+
+It is often necessary to convey extra information with the packet. For
+example, when an application-layer module wants to send data over TCP, some
+connection identifier needs to be specified for TCP. When TCP sends a
+segment over IP, IP will need a destination address and possibly other
+parameters like TTL. When IP sends a datagram to an Ethernet interface for
+transmission, a destination MAC address must be specified. This extra
+information is attached to the message object to as \textit{control info}.
+
+Control info are small value objects, which are attached to packets
+(message objects) with its \ttt{setControlInfo()} member function.
+Control info only holds auxiliary information for the next protocol layer,
+and is not supposed to be sent over the network to other hosts and routers.
+
+\section{Network interfaces}
+
+todo...
+
+\section{The wireless infrastructure}
+
+todo...
+
+
+%%% Local Variables:
+%%% mode: latex
+%%% TeX-master: "usman"
+%%% End:
+

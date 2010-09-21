@@ -236,13 +236,23 @@
 %% the second form uses the bracketed word for the index entry
 %%
 
+%% NED type names
+\newcommand{\nedtype}[2][\DefaultOpt]{\def\DefaultOpt{#2}%
+  \index{#1}%
+  \texttt{\hyphenchar\font=`\-\relax#2}}
+
+%% MSG type names
+\newcommand{\msgtype}[2][\DefaultOpt]{\def\DefaultOpt{#2}%
+  \index{#1}%
+  \texttt{\hyphenchar\font=`\-\relax#2}}
+
 %% Function names
 \newcommand{\ffunc}[2][\DefaultOpt]{\def\DefaultOpt{#2}%
   \index{#1}%
   \texttt{\hyphenchar\font=`\-\relax#2}}
 
 %% Class names
-\newcommand{\cclass}[2][\DefaultOpt]{\def\DefaultOpt{#2}%
+\newcommand{\cppclass}[2][\DefaultOpt]{\def\DefaultOpt{#2}%
   \index{#1}%
   \texttt{\hyphenchar\font=`\-\relax#2}}
 
@@ -326,26 +336,13 @@
 \include{ch-introduction}
 \cleardoublepage
 
-\include{ch-concepts}
+\include{ch-usage}
 \cleardoublepage
 
-\include{ch-introduction}
+\include{ch-node-architecture}
 \cleardoublepage
 
-\include{ch-ipv4}
-\cleardoublepage
-
-\include{ch-ipv6}
-\cleardoublepage
-
-\include{ch-mpls}
-\cleardoublepage
-
-\include{ch-radio}
-\cleardoublepage
-
-\include{ch-routing}
-\cleardoublepage
+\include{ch-apps}
 
 \include{ch-tcp}
 \cleardoublepage
@@ -354,6 +351,36 @@
 \cleardoublepage
 
 \include{ch-sctp}
+\cleardoublepage
+
+\include{ch-ipv4}
+\cleardoublepage
+
+\include{ch-ipv6}
+\cleardoublepage
+
+\include{ch-ethernet}
+\cleardoublepage
+
+\include{ch-ppp}
+\cleardoublepage
+
+\include{ch-80211}
+\cleardoublepage
+
+\include{ch-radio}
+\cleardoublepage
+
+\include{ch-mobility}
+\cleardoublepage
+
+\include{ch-routing}
+\cleardoublepage
+
+\include{ch-mpls}
+\cleardoublepage
+
+\include{ch-history}
 \cleardoublepage
 
 

@@ -34,37 +34,18 @@ correctly. The INSTALL file also describes how to do that.
 
 TODO what is documented where in the OMNeT++ manual (chapter, section title)
 
-TODO the pattern syntax: *, **; there is also syntax to match index ranges and
-ranges of numbers embedded in names
+The INET Framework builds upon OMNeT++, and uses the same concept: modules
+that communicate by message passing. Hosts, routers, switches and other
+network devices are represented by OMNeT++ compound modules. These compound
+modules are assembled from simple modules that represent protocols,
+applications, and other functional units. A network is again an OMNeT++
+compound module that contains host, router and other modules. The external
+interfaces of modules are described in NED files. NED files describe the
+parameters and gates (i.e. ports or connectors) of modules, and also the
+submodules and connections (i.e. netlist) of compound modules.
 
-
-The INET Framework builds upon OMNeT++, and uses the same concept:
-\tbf{modules} that communicate by message passing. Hosts, routers, switches
-and other network devices are represented by OMNeT++ compound modules.
-These compound modules are assembled from simple modules that represent
-protocols, applications, and other functional units. A network is again an
-OMNeT++ compound module that contains host, router and other modules. The
-external interfaces of modules are described in NED files. NED files
-describe the parameters and gates (i.e. ports or connectors) of modules,
-and also the submodules and connections (i.e. netlist) of compound modules.
-
-The internal structure of compound modules can be customized in several
-ways. The first way is the use of \tbf{gate vectors and submodule vectors}.
-The sizes of vectors may come from parameters or derived by the number of
-external connections to the module. For example, one can have an Ethernet
-switch model that has as many ports as needed, i.e. equal to the number of
-Ethernet devices connected to it. The second way of customization is
-\tbf{parametric types}, that is, the type of a submodule may be specified
-as a string parameter. For example, the relay unit inside an Ethernet
-switch has several alternative implementations, each one being a distinct
-module type. The switch model contains a parameter which allows the user to
-select the appropriate relay unit implementation. A third way of
-customizing modules is \tbf{inheritance}: a derived module may add new
-parameters, gates, submodules or connections, and may set inherited
-unassigned parameters to specific values.
-
-Modules are organized into hierarchical \tbf{packages} that directly map to
-a folder tree, very much like packages in the Java language. Packages in
+Modules are organized into hierarchical \textit{packages} that directly map to
+a folder tree, very much like Java packages. Packages in
 INET are organized roughly according to OSI layers; the top packages
 include \ttt{inet.applications}, \ttt{inet.transport},
 \ttt{inet.networklayer}, and \ttt{inet.linklayer}. Other packages are
@@ -101,6 +82,24 @@ files (msg files), which are translated into C++ classes by OMNeT++'s
 \textit{opp\_msgc} tool. The generated message classes subclass from OMNeT++'s
 \ttt{cPacket} or \ttt{cMessage} classes.
 
+The internal structure of compound modules such as host and router models
+can be customized in several ways. The first way is the use of \textit{gate
+vectors} and \textit{submodule vectors}. The sizes of vectors may come from
+parameters or derived by the number of external connections to the module.
+For example, one can have an Ethernet switch model that has as many ports
+as needed, i.e. equal to the number of Ethernet devices connected to it.
+
+The second way of customization is \textit{parametric types}, that is, the
+type of a submodule (or a channel) may be specified as a string parameter.
+For example, the relay unit inside an Ethernet switch has several
+alternative implementations, each one being a distinct module type. The
+switch model contains a parameter which allows the user to select the
+appropriate relay unit implementation.
+
+A third way of customizing modules is \textit{inheritance}: a derived
+module may add new parameters, gates, submodules or connections, and may
+set inherited unassigned parameters to specific values.
+
 
 \section{Creating and Running Simulations}
 
@@ -123,6 +122,14 @@ the first match will be assigned for the parameter. If no matching line is
 found, the default value in the NED file will be used. (If there is no
 default value either, the value will be interactively prompted for, or, in
 case of a batch run, an error will be raised.)
+
+There are two kinds of wildcards: a single asterisk \ttt{*} matches at most
+one component name in the path string, while double asterisk \ttt{**} may
+match multiple components. Technically: \ttt{*} never matches a dot or a
+square bracket (\ttt{.}, \ttt{[}, \ttt{]}), while \ttt{**} can match any of
+them. Patterns are also capable of expressing index ranges
+(\ttt{**.host[1..3,5,8].tcp.nagleEnabled}) and ranges of numbers embedded
+in names (\ttt{**.switch\{2..3\}.relayUnitType}).
 
 OMNeT++ allows several configurations to be put into the \ttt{omnetpp.ini}
 file under \ttt{[Config <name>]} section headers, and the right
@@ -150,16 +157,41 @@ how to anaylize results
 how to configure result collection
 
 
-\begin{note}
-These are standard OMNeT++ features; please see the manual for more info.
-Or go through the TicToc tutorial at least.
-\end{note}
 
 \section{Setting up wired network simulations}
+
+For an introduction, in this section we show you how to set up simulations
+of wired networks using PPP or Ethernet links with autoconfigured static IP
+routing. (If your simulation involves more, such as manually configured
+routing tables, dynamic routing, MPLS, or IPv6 or other features and protocols,
+you'll find info about them in later chapters.)
+
+Such a network can be assembled using the predefined \nedtype{StandardHost}
+and \nedtype{Router} modules. For automatic IP address assignment and
+static IP routing we can use the \nedtype{FlatNetworkConfigurator} utility
+module.
+
+ethg, pppg;  automatically expand (++)
 
 todo which modules are needed into it, what they do, etc.
 
 how to add apps, etc
+
+\subsection{Modeling Link and Node Failures}
+
+todo
+
+Some modules have only one instance, at global network level:
+
+\nedtype{FlatNetworkConfigurator} assigns IP addresses to hosts and routers,
+and sets up static routing.
+
+\nedtype{ScenarioManager} makes simulations scriptable. Modules can be made to support
+scripting by implementing the \cppclass{IScriptable} C++ interface.
+
+\nedtype{ChannelControl} is required for wireless simulations. It keeps track of which
+nodes are within interference distance of other nodes.
+
 
 
 \subsection{Specifying IP (IPv6) addresses in module parameters}

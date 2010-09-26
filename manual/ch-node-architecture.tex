@@ -4,24 +4,153 @@
 
 \section{Overview}
 
-Blah blah blah
-
+This chapter describes the architecture of INET host and router models.
 
 
 \section{Common modules in hosts and routers}
 
 There are some common modules that appear in all (or many) host, router and device
-models.
+models:
 
-\nedtype{InterfaceTable}:
-This module contains the table of network interfaces
-(eth0, wlan0, etc) in the host. This module does not send or receive messages:
-it is accessed by other modules using standard C++ member function calls.
-Other modules rely on the interface table submodule within the host to be called
-\ttt{interfaceTable} to be able to find it. (They obtain a \ttt{cModule *}
-pointer to it, then cast it to \ttt{InterfaceTable *} to be able to call its
-functions). Network interfaces get dynamically registered (added to the table)
-by simple modules implementing the network interface, for example \nedtype{EtherMAC}.
+\begin{itemize}
+  \item \nedtype{InterfaceTable}: This module contains the table of network interfaces
+  (eth0, wlan0, etc) in the host. Interfaces are registered dynamically during the
+  initialization phase by modules that represent network interface cards (NICs).
+  Other modules access interface information via a C++ class interface.
+
+  \item \nedtype{RoutingTable}: This module contains the IPv4 routing table. It is
+  also accessed from other via a C++ interface. The interface contains
+  member functions for querying, adding, deleting routes, and
+  finding the best matching route for a given destination IP address.
+
+  \item \nedtype{RoutingTable6}. This module is like \nedtype{RoutingTable}, but for IPv6.
+
+  \item \nedtype{NotificationBoard}. This module makes it possible for several modules to
+  communicate in a publish-subscribe manner. Notifications include change notifications
+  ("Routing table changed") and state changes ("radio became idle").
+\end{itemize}
+
+
+
+\section{Addresses}
+
+The INET Framework uses a number of C++ classes to represent various
+addresses in the network. These classes support initialization and
+assignment from binary and string representation of the address, and
+accessing the address in both forms. (Storage is in binary form). They also
+support the "unspecified" special value (and the \ffunc{isUnspecified()}
+method) that corresponds to the all-zeros address.
+
+\begin{itemize}
+  \item \cppclass{MACAddress} represents a 48-bit IEEE 802 MAC address. The
+    textual notation it understands and produces is hex string.
+
+  \item \cppclass{IPAddress} represents a 32-bit IPv4 address. It can parse
+    and produce textual representations in the "dotted decimal" syntax.
+
+  \item \cppclass{IPv6Address} represents a 128-bit IPv6 address. It can parse
+    and produce address strings in the canonical (RFC 3513) syntax.
+
+  \item \cppclass{IPvXAddress} is conceptually a union of a \cppclass{IPAddress}
+    and \cppclass{IPv6Address}: an instance stores either an IPv4 address or an
+    IPv6 address. It can be assigned from both \cppclass{IPAddress} and
+    \cppclass{IPv6Address}, and can also parse string representations of both.
+    The \ffunc{isIPv6()}, \ffunc{get4()} and \ffunc{get6()} methods can be used
+    to access the value.
+\end{itemize}
+
+
+
+
+\section{The Interface Table}
+
+The \nedtype{InterfaceTable} module holds one of the key data structures in
+the INET Framework: information about the network interfaces in the host.
+The interface table module does not send or receive messages; other modules
+access it using standard C++ member function calls.
+
+\subsection{Accessing the Interface Table}
+
+If a module wants to work with the interface table, first it needs to obtain a
+pointer to it. This can be done with the help of the
+\cppclass{InterfaceTableAccess} utility class:
+
+\begin{cpp}
+IInterfaceTable *ift = InterfaceTableAccess().get();
+\end{cpp}
+
+\cppclass{InterfaceTableAccess} requires the interface table module to be a
+direct child of the host and be called \ttt{"interfaceTable"} in order to
+be able to find it. The \ffunc{get()} method never returns \ttt{NULL}: if
+it cannot find the interface table module or cannot cast it to the
+appropriate C++ type (\cppclass{IInterfaceTable}), it throws an exception
+and stop the simulation with an error message.
+
+For completeness, \cppclass{InterfaceTableAccess} also has a
+\ffunc{getIfExists()} method which can be used if the code does not require
+the presence of the interface table. This method returns \ttt{NULL} if the
+interface table cannot be found.
+
+Note that the returned C++ type is \cppclass{IInterfaceTable}; the initial
+"\ttt{I}" stands for "interface". \cppclass{IInterfaceTable} is an abstract
+class interface that \cppclass{InterfaceTable} implements. Using the abstract
+class interface allows one to transparently replace the interface table with
+another implementation, without the need for any change or even
+recompilation of the INET Framework.
+
+\subsection{Interface Entries}
+
+Interfaces in the interface table are represented with the
+\cppclass{InterfaceEntry} class. \cppclass{IInterfaceTable} provides member
+functions for adding, removing, enumerating and looking up interfaces.
+
+Interfaces have unique names and interface IDs; either can be used to look up
+an interface (IDs are naturally more efficient). Interface IDs are invariant to
+the addition and removal of other interfaces.
+
+Data stored by an interface entry include:
+
+\begin{itemize}
+  \item \textit{name} and \textit{interface ID} (as described above)
+  \item \textit{MTU}: Maximum Transmission Unit, e.g. 1500 on Ethernet
+  \item several flags:
+    \begin{itemize}
+      \item \textit{down}: current state (up or down)
+      \item \textit{broadcast}: whether the interface supports broadcast
+      \item \textit{multicast} whether the interface supports multicast
+      \item \textit{pointToPoint}: whether the interface is point-to-point link
+      \item \textit{loopback}: whether the interface is a loopback interface
+    \end{itemize}
+  \item \textit{datarate} in bit/s
+  \item \textit{link-layer address} (for now, only IEEE 802 MAC addresses are supported)
+  \item \textit{network-layer gate index}: which gate of the network layer within the host the NIC is connected to
+  \item \textit{host gate IDs}: the IDs of the input and output gate of the host the NIC is connected to
+\end{itemize}
+
+Plus: network-layer protocol specific data: ipv4Data(), ipv6Data(), protocol3Data(), protocol4Data()
+
+Extensibility:
+
+by NICs: inheritance;
+
+by network layer protocols: interfacedata like ipv4(), ipv6()
+
+
+\subsection{Interface Registration}
+
+Interfaces are registered dynamically in the
+initialization phase by modules that represent network interface cards (NICs).
+
+\subsection{Interface Change Notifications}
+
+\subsection{Resolving addresses with IPAddressResolver}
+
+\subsection{Auto address assignment by FlatNetworkConfigurator}
+
+
+
+
+\section{The Routing Table}
 
 \nedtype{RoutingTable}:
 This module contains the IP (v4) routing table, and heavily relies
@@ -32,31 +161,29 @@ finding the best matching route for a given destination IP address.
 The routing table submodule within the host (router) must be called
 \ttt{routingTable} for other modules to find it.
 
-\nedtype{RoutingTable6}. This is like \nedtype{RoutingTable}, but for IPv6.
 
-\nedtype{NotificationBoard}. This module makes it possible for several modules to
-communicate in a publish-subscribe manner. For example, the radio module
-(\nedtype{Ieee80211Radio}) fires a \textit{"radio state changed"} notification when
-the state of the radio channel changes (from TRANSMIT to IDLE, for example),
-and it will be delivered to other modules that have previously subscribed
-to that notification category. The notification mechanism also works
-my C++ functions calls, no message sending is involved.
-The notification board submodule within the host (router) must be called
-\ttt{notificationBoard} for other modules to find it.
+TODO
 
 
-\section{Common modules at network level}
+\section{Initialization Stages}
 
-Some modules have only one instance, at global network level:
+Node architecture makes it necessary to use multi-stage initialization.
+What happens in each stage is this:
 
-\nedtype{FlatNetworkConfigurator} assigns IP addresses to hosts and routers,
-and sets up static routing.
+In stage 0, interfaces register themselves in \nedtype{InterfaceTable} modules
 
-\nedtype{ScenarioManager} makes simulations scriptable. Modules can be made to support
-scripting by implementing the \cppclass{IScriptable} C++ interface.
+In stage 1, routing files are read.
 
-\nedtype{ChannelControl} is required for wireless simulations. It keeps track of which
-nodes are within interference distance of other nodes.
+In stage 2, network configurators (e.g. \nedtype{FlatNetworkConfiguration})
+assign addresses and set up routing tables.
+
+In stage 3, TODO...
+
+In stage 4, TODO...
+
+...
+
+The multi-stage initialization process itself is described in the OMNeT++ Manual.
 
 
 \section{Communication between protocol layers}
@@ -81,6 +208,21 @@ Control info are small value objects, which are attached to packets
 Control info only holds auxiliary information for the next protocol layer,
 and is not supposed to be sent over the network to other hosts and routers.
 
+
+\section{Publish-Subscribe Communication within Nodes}
+
+The \nedtype{NotificationBoard} module makes it possible for several modules to
+communicate in a publish-subscribe manner. For example, the radio module
+(\nedtype{Ieee80211Radio}) fires a \textit{"radio state changed"} notification when
+the state of the radio channel changes (from TRANSMIT to IDLE, for example),
+and it will be delivered to other modules that have previously subscribed
+to that notification category. The notification mechanism uses C++ functions
+calls, no message sending is involved.
+
+The notification board submodule within the host (router) must be called
+\ttt{notificationBoard} for other modules to find it.
+
+
 \section{Network interfaces}
 
 todo...
@@ -88,6 +230,121 @@ todo...
 \section{The wireless infrastructure}
 
 todo...
+
+
+
+\section{NED Conventions}
+
+\subsection{The @node Property}
+
+By convention, compound modules that implement network devices (hosts,
+routers, switches, access points, base stations, etc.) are marked with the
+\ttt{@node} NED property. As node models may themselves be hierarchical, the
+\ttt{@node} property is used by protocol implementations and other simple
+modules to determine which ancestor compound module represents the physical
+network node they live in.
+
+\subsection{The @labels Module Property}
+
+The \ttt{@labels} property can be added to modules and gates, and it
+allows the OMNeT++ graphical editor to provide better editing experience.
+First we look at \ttt{@labels} as a module property.
+
+\ttt{@labels(node)} has been added to all NED module types that may occur on
+network level. When editing a network, the graphical editor will NED types
+with \ttt{@labels(node)} to the top of the component palette, allowing the
+user to find them easier.
+
+Other labels can also be specified in the \ttt{@labels(...)} property. This
+has the effect that if one module with a particular label has already been
+added to the compound module being edited, other module types with the same
+label are also brought to the top of the palette. For example,
+\nedtype{EtherSwitch} is annotated with \ttt{@labels(node,ethernet-node)}.
+When you drop an \nedtype{EtherSwitch} into a compound module, that will
+bring \nedtype{EtherHost} (which is also tagged with the
+\ttt{ethernet-node} label) to the top of the palette, making it easier to
+find.
+
+\begin{ned}
+module EtherSwitch
+{
+    parameters:
+        @node();
+        @labels(node,ethernet-node);
+        @display("i=device/switch");
+    ...
+}
+\end{ned}
+
+Module types that are already present in the compound module also appear in
+the top part of the palette. The reason is that if you already added a
+\nedtype{StandardHost}, for example, then you are likely to add more of the
+same kind. Gate labels (see next section) also affect palette order: modules
+which can be connected to modules already added to the compound module
+will also be listed at the top of the palette. The final ordering is the
+result of a scoring algorithm.
+
+
+\subsection{The @labels Gate Property}
+
+Gates can also be labelled with \ttt{@labels()}; the purpose is to make it easier
+to connect modules in the editor. If you connect two modules in the editor,
+the gate selection menu will list gate pairs that have a label in common.
+
+TODO screenshot
+
+For example, when connecting hosts and routers, the editor will offer connecting
+Ethernet gates with Ethernet gates, and PPP gates with PPP gates. This is the
+result of gate labelling like this:
+
+\begin{ned}
+module StandardHost
+{
+    ...
+    gates:
+        inout pppg[] @labels(PPPFrame-conn);
+        inout ethg[] @labels(EtherFrame-conn);
+    ...
+}
+\end{ned}
+
+Guidelines for choosing gate label names: For gates of modules that
+implement protocols, use the C++ class name of the packet or acompanying
+control info (see later) associated with the gate, whichever applies;
+append \ttt{/up} or \ttt{/down} to the name of the control info class. For
+gates of network nodes, use the class names of packets (frames) that travel
+on the corresponding link, with the \ttt{-conn} suffix. The suffix prevents
+protocol-level modules to be promoted in the graphical editor palette when
+a network is edited.
+
+Examples:
+
+\begin{ned}
+simple TCP like ITCP
+{
+    ...
+    gates:
+        input appIn[] @labels(TCPCommand/down);
+        output appOut[] @labels(TCPCommand/up);
+        input ipIn @labels(TCPSegment,IPControlInfo/up);
+        output ipOut @labels(TCPSegment,IPControlInfo/down);
+        input ipv6In @labels(TCPSegment,IPv6ControlInfo/up);
+        output ipv6Out @labels(TCPSegment,IPv6ControlInfo/down);
+}
+\end{ned}
+
+
+\begin{ned}
+simple PPP
+{
+    ...
+    gates:
+        input netwIn;
+        output netwOut;
+        inout phys @labels(PPPFrame);
+}
+\end{ned}
+
 
 
 %%% Local Variables:

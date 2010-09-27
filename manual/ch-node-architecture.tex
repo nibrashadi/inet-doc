@@ -6,30 +6,106 @@
 
 This chapter describes the architecture of INET host and router models.
 
-
-\section{Common modules in hosts and routers}
-
-There are some common modules that appear in all (or many) host, router and device
-models:
+Hosts and routers in the INET Framework are OMNeT++ compound modules that
+are composed of the following ingredients:
 
 \begin{itemize}
-  \item \nedtype{InterfaceTable}: This module contains the table of network interfaces
-  (eth0, wlan0, etc) in the host. Interfaces are registered dynamically during the
-  initialization phase by modules that represent network interface cards (NICs).
-  Other modules access interface information via a C++ class interface.
 
-  \item \nedtype{RoutingTable}: This module contains the IPv4 routing table. It is
-  also accessed from other via a C++ interface. The interface contains
-  member functions for querying, adding, deleting routes, and
-  finding the best matching route for a given destination IP address.
+\item \tbf{Interface Table (\nedtype{InterfaceTable})}. This module
+contains the table of network interfaces (eth0, wlan0, etc) in the host.
+Interfaces are registered dynamically during the initialization phase by
+modules that represent network interface cards (NICs). Other modules access
+interface information via a C++ class interface.
 
-  \item \nedtype{RoutingTable6}. This module is like \nedtype{RoutingTable}, but for IPv6.
+\item \tbf{Routing Table (\nedtype{RoutingTable})}. This module contains
+the IPv4 routing table. It is also accessed from other via a C++ interface.
+The interface contains member functions for adding, removing, enumerating
+and looking up routes, and finding the best matching route for a given
+destination IP address. The IP module calls uses the latter function for
+routing packets, and routing protocols such as OSPF or BGP call the route
+manipulation methods to add and manage discovered routes.
 
-  \item \nedtype{NotificationBoard}. This module makes it possible for several modules to
-  communicate in a publish-subscribe manner. Notifications include change notifications
-  ("Routing table changed") and state changes ("radio became idle").
+\item \tbf{Notification Board (\nedtype{NotificationBoard})}. This module
+makes it possible for several modules to communicate in a publish-subscribe
+manner. Notifications include change notifications (``routing table
+changed'') and state changes (``radio became idle'').
+
+\item \tbf{Mobility module}. In simulations involving node mobility, this
+module is responsible for moving around the node in the simulated
+``playground.'' A mobility module is also needed for wireless simulations
+even if the node is stationery, because the mobility module stores the
+node's location, needed to compute wireless transmissions. Different
+mobility models (Random Walk, etc.) are supported via different module
+types, and many host models define their mobility submodules with
+parametric type so that the mobility model can be changed in the
+configuration (\ttt{"mobility: <mobilityType> like IMobility"}).
+
+\item \tbf{NICs}. Network interfaces are usually compound modules
+themselves, composed of a queue and a MAC module. Examples are
+\nedtype{PPPInterface}, \nedtype{EthernetInterface}, and WLAN interfaces
+such as \nedtype{Ieee80211NicSTA}. The queue submodule stores packets
+waiting for transmission, and it is usually defined as having parametric
+type as it has multiple implementations to accomodate different needs
+(\nedtype{DropTailQueue}, \nedtype{REDQueue}, \nedtype{DropTailQoSQueue},
+etc.) Most MACs also have an internal queue to allow operation without an
+external queue module, the advantage being smaller overhead. The NIC's
+entry in the host's \nedtype{InterfaceTable} is usually registered by the
+MAC module at the beginning of the simulation.
+
+\item \tbf{Network layer}. Modules that represent protocols of the network
+layer are usually grouped into a compound module: \nedtype{NetworkLayer}
+for IP, and \nedtype{NetworkLayer6} for IPv6. \nedtype{NetworkLayer}
+contains the modules \nedtype{IP}, \nedtype{ARP}, \nedtype{ICMP} and
+\nedtype{ErrorHandling}. The \nedtype{IP} module performs IP
+encapsulation/decapsulation and routing of datagrams; for the latter it
+accesses the C++ function call interface of the \nedtype{RoutingTable}.
+Packet forwarding can be turned on/off via a module parameter. The
+\nedtype{ARP} module is put into the path of packets leaving the network
+layer towards the NICs, and performs address resolution for interfaces that
+need it (e.g. Ethernet). \nedtype{ICMP} deals with sending and receiving
+ICMP packets. The \nedtype{ErrorHandling} module receives and logs ICMP
+error replies. The IPv6 network layer, \nedtype{NetworkLayer6} contains the
+modules \nedtype{IPv6}, \nedtype{ICMPv6}, \nedtype{IPv6NeighbourDiscovery}
+and \nedtype{IPv6ErrorHandling}.
+
+\item \tbf{Transport layer protocols}. Transport protocols are represented
+by modules connected to the network layer; currently TCP, UDP and SCTP are
+supported. TCP has several implementations: \nedtype{TCP} is the OMNeT++
+native implementation; the \nedtype{TCP\_lwip} module wraps the lwIP TCP
+stack [TODO]; and the \nedtype{TCP\_NSC} module wraps the Network
+Simulation Cradle library [TODO]. For this reason, the \ttt{tcp} submodule
+is usually defined with a parametric submodule type (\ttt{"tcp: <tcpType>
+like ITCP"}).  UDP and SCTP are implemented by the \nedtype{UDP} and
+\nedtype{SCTP} modules, respectively.
+
+\item \sloppypar \tbf{Applications}. Application modules typically connect to TCP
+and/or UDP, and model the user behavior as well as the application program
+(e.g. browser) and application layer protocol (e.g. HTTP). For convenience,
+\nedtype{StandardHost} supports any number of UDP, TCP and SCTP
+applications, their types being parametric (\ttt{"tcpApp[numTcpApps]:
+<tcpAppType> like TCPApp; udpApp[numUdpApps]: <udpAppType> like
+UDPApp; ..."}). This way the user can configure applications entirely from
+\ttt{omnetpp.ini}, and does not need to write a new NED file every time
+different applications are needed in a host model. Application modules
+are typically not present in router models.
+
+\item \tbf{Routing protocols}. For routers; routing protocol above TCP and/or UDP
+
+\item \tbf{MPLS modules}. Additional modules if IPv6/MIPv6 or MPLS is used
+
 \end{itemize}
 
+For routers: routing protocol above TCP and/or UDP
+
+Additional modules if IPv6/MIPv6 or MPLS is used
+
+Battery if sensor network
+
+The predefined NED types \nedtype{StandardHost} and \nedtype{Router} are
+only one possible way of building host/router models; for specific
+simulations it is a perfectly valid approach to create custom node models.
+
+TODO What is needed when...  (I.e. when can InterfaceTable be omitted, RoutingTable, queue, etc)
 
 
 \section{Addresses}
@@ -53,8 +129,9 @@ method) that corresponds to the all-zeros address.
 
   \item \cppclass{IPvXAddress} is conceptually a union of a \cppclass{IPAddress}
     and \cppclass{IPv6Address}: an instance stores either an IPv4 address or an
-    IPv6 address. It can be assigned from both \cppclass{IPAddress} and
-    \cppclass{IPv6Address}, and can also parse string representations of both.
+    IPv6 address. \cppclass{IPvXAddress} is mainly used in the transport layer and above
+    to abstract away network addresses. It can be assigned from both \cppclass{IPAddress}
+    and \cppclass{IPv6Address}, and can also parse string representations of both.
     The \ffunc{isIPv6()}, \ffunc{get4()} and \ffunc{get6()} methods can be used
     to access the value.
 \end{itemize}

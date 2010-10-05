@@ -23,7 +23,11 @@ The interface contains member functions for adding, removing, enumerating
 and looking up routes, and finding the best matching route for a given
 destination IP address. The IP module calls uses the latter function for
 routing packets, and routing protocols such as OSPF or BGP call the route
-manipulation methods to add and manage discovered routes.
+manipulation methods to add and manage discovered routes. For IPv6
+simulations, \nedtype{RoutingTable} is replaced (or co-exists) with
+a \nedtype{RoutingTable6} module; and for Mobile IPv6 simulations
+(xMIPv6 project [TODO]), possibly with a \nedtype{BindingCache} module
+as well.
 
 \item \tbf{Notification Board (\nedtype{NotificationBoard})}. This module
 makes it possible for several modules to communicate in a publish-subscribe
@@ -41,7 +45,8 @@ parametric type so that the mobility model can be changed in the
 configuration (\ttt{"mobility: <mobilityType> like IMobility"}).
 
 \item \tbf{NICs}. Network interfaces are usually compound modules
-themselves, composed of a queue and a MAC module. Examples are
+themselves, composed of a queue and a MAC module (and in the case of
+wireless NICs, a radio module or modules). Examples are
 \nedtype{PPPInterface}, \nedtype{EthernetInterface}, and WLAN interfaces
 such as \nedtype{Ieee80211NicSTA}. The queue submodule stores packets
 waiting for transmission, and it is usually defined as having parametric
@@ -66,7 +71,8 @@ need it (e.g. Ethernet). \nedtype{ICMP} deals with sending and receiving
 ICMP packets. The \nedtype{ErrorHandling} module receives and logs ICMP
 error replies. The IPv6 network layer, \nedtype{NetworkLayer6} contains the
 modules \nedtype{IPv6}, \nedtype{ICMPv6}, \nedtype{IPv6NeighbourDiscovery}
-and \nedtype{IPv6ErrorHandling}.
+and \nedtype{IPv6ErrorHandling}. For Mobile IPv6 simulations (xMIPv6
+project [TODO]), \nedtype{NetworkLayer6} is extended with further modules.
 
 \item \tbf{Transport layer protocols}. Transport protocols are represented
 by modules connected to the network layer; currently TCP, UDP and SCTP are
@@ -89,23 +95,46 @@ UDPApp; ..."}). This way the user can configure applications entirely from
 different applications are needed in a host model. Application modules
 are typically not present in router models.
 
-\item \tbf{Routing protocols}. For routers; routing protocol above TCP and/or UDP
+\item \tbf{Routing protocols}. Router models typically contain modules that
+implement routing protocols such as OSPF or BGP. These modules are
+connected to the TCP and/or the UDP module, and manipulate routes in the
+\nedtype{RoutingTable} module via C++ function calls.
 
-\item \tbf{MPLS modules}. Additional modules if IPv6/MIPv6 or MPLS is used
+\item \tbf{MPLS modules}. Additional modules are needed for MPLS
+simulations. The \nedtype{MPLS} module is placed between the network layer
+and NICs, and implements label switching. \nedtype{MPLS} requires a
+\nedtype{LIB} module (Label Information Base) to be present in the router
+which it accesses via C++ function calls. MPLS control protocol
+implementations (e.g. the \nedtype{RSVP} module) manage the information in
+\nedtype{LIB} via C++ calls.
+
+\item \tbf{Relay unit}. Ethernet (and possibly other) switch models may
+contain a relay unit, which switches frames among Ethernet (and other
+IEEE 802) NICs. Concrete relay unit types include \nedtype{MACRelayUnitPP}
+and \nedtype{MACRelayUnitNP}, which differ in their performance models.
+
+\item \tbf{Battery module}. INET extensions uses for wireless sensor
+networks (WSNs) may add a battery module to the node model. The battery
+module would keep track of energy consumption. A battery module is provided
+e.g. by the INETMANET project.
 
 \end{itemize}
 
-For routers: routing protocol above TCP and/or UDP
+The \nedtype{StandardHost} and \nedtype{Router} predefined NED types are
+only one possible example of host/router models, and they do not contain
+all the above components; for specific simulations it is a perfectly
+valid approach to create custom node models.
 
-Additional modules if IPv6/MIPv6 or MPLS is used
+Most modules are optional, i.e. can be left out of hosts or other node
+models when not needed in the given scenario. For example, switch models do
+not need a network layer, a routing table or interface table; it may need a
+notification board though. Some NICs (e.g. \nedtype{EtherMAC}) can be used
+without and interface table and queue models as well.
 
-Battery if sensor network
-
-The predefined NED types \nedtype{StandardHost} and \nedtype{Router} are
-only one possible way of building host/router models; for specific
-simulations it is a perfectly valid approach to create custom node models.
-
-TODO What is needed when...  (I.e. when can InterfaceTable be omitted, RoutingTable, queue, etc)
+The notification board (\nedtype{NotificationBoard}) and the interface
+table (\nedtype{InterfaceTable}) will be described later in this chapter.
+Other modules are covered in later chapters, i.e. \nedtype{RoutingTable}
+in the IPv4 chapter.
 
 
 \section{Addresses}
@@ -136,6 +165,83 @@ method) that corresponds to the all-zeros address.
     to access the value.
 \end{itemize}
 
+TODO: Resolving addresses with IPAddressResolver
+
+
+\section{The Notification Board}
+
+The \nedtype{NotificationBoard} module allows publish-subscribe
+communication among modules within a host. Using
+\nedtype{NotificationBoard}, modules can notify each other about
+events such as routing table changes, interface status changes
+(up/down), interface configuration changes, wireless handovers, changes in
+the state of the wireless channel, mobile node position changes, etc.
+\nedtype{NotificationBoard} acts as a intermediary between the module where
+the events occur and modules which are interested in learning about
+those events.
+
+\nedtype{NotificationBoard} has exactly one instance within a host or
+router model, and it is accessed via direct C++ method calls (not message
+exchange). Modules can \textit{subscribe} to categories of changes
+(e.g. ``routing table changed'' or ``radio channel became empty''). When
+such a change occurs, the corresponding module (e.g. the
+\nedtype{RoutingTable} or the physical layer module) will let
+\nedtype{NotificationBoard} know, and it will disseminate this information
+to all interested modules.
+
+\sloppypar Notification events are grouped into \textit{categories}.
+Examples of categories are: \ttt{NF\_HOSTPOSITION\_UPDATED},
+\ttt{NF\_RADIOSTATE\_CHANGED}, \ttt{NF\_PP\_TX\_BEGIN},
+\ttt{NF\_PP\_TX\_END}, \ttt{NF\_IPv4\_ROUTE\_ADDED},
+\ttt{NF\_BEACON\_LOST}, \ttt{NF\_NODE\_FAILURE}, \ttt{NF\_NODE\_RECOVERY},
+etc. Each category is identified by an integer (right now it's assigned in
+the source code via an enum, in the future we'll convert to dynamic
+category registration).
+
+To trigger a notification, the client must obtain a pointer to the
+\nedtype{NotificationBoard} of the given host or router (explained later),
+and call its \ffunc{fireChangeNotification()} method. The notification will
+be delivered to all subscribed clients immediately, inside the
+\ffunc{fireChangeNotification()} call.
+
+Clients that wish to receive notifications should implement (subclass from)
+the \cppclass{INotifiable} interface, obtain a pointer to the
+\nedtype{NotificationBoard}, and subscribe to the categories they are
+interested in by calling the \ffunc{subscribe()} method of the
+\nedtype{NotificationBoard}. Notifications will be delivered to the
+\ffunc{receiveChangeNotification()} method of the client (redefined from
+\cppclass{INotifiable}).
+
+In cases when the category itself (an \ttt{int}) does not carry enough
+information about the notification event, one can pass additional
+information in a data class. There is no restriction on what the data class
+may contain, except that it has to be subclassed from \cppclass{cObject},
+and of course producers and consumers of notifications should agree on its
+contents. If no extra info is needed, one can pass a \ttt{NULL} pointer in
+the \ffunc{fireChangeNotification()} method.
+
+A module which implements \cppclass{INotifiable} looks like this:
+
+\begin{cpp}
+class Foo : public cSimpleModule, public INotifiable {
+    ...
+    virtual void receiveChangeNotification(int category, const cObject *details) {..}
+    ...
+};
+\end{cpp}
+
+Note: \cppclass{cObject} was called \cppclass{cPolymorphic} in earlier versions
+of OMNeT++. You may occasionally still see the latter name in source code; it
+is an alias (typedef) to \cppclass{cObject}.
+
+Obtaining a pointer to the \nedtype{NotificationBoard} module of that host/router:
+
+\begin{cpp}
+NotificationBoard *nb; // this is best made a module class member
+nb = NotificationBoardAccess().get();  // best done in initialize()
+\end{cpp}
+
+TODO how to fire a notification
 
 
 
@@ -204,42 +310,121 @@ Data stored by an interface entry include:
   \item \textit{host gate IDs}: the IDs of the input and output gate of the host the NIC is connected to
 \end{itemize}
 
-Plus: network-layer protocol specific data: ipv4Data(), ipv6Data(), protocol3Data(), protocol4Data()
+\tbf{Extensibility}. You have probably noticed that the above list does not
+contain data such as the IP or IPv6 address of the interface. Such
+information is not part of \cppclass{InterfaceEntry} because we do not want
+\nedtype{InterfaceTable} to depend on either the IPv4 or the IPv6 protocol
+implementation; we want both to be optional, and we want
+\nedtype{InterfaceTable} to be able to support possibly other network
+protocols as well.
 
-Extensibility:
+Thus, extra data items are added to \cppclass{InterfaceEntry} via
+extension. Two kinds of extensions are envisioned: extension by the link
+layer (i.e. the NIC), and extension by the network layer protocol:
 
-by NICs: inheritance;
+\begin{itemize}
 
-by network layer protocols: interfacedata like ipv4(), ipv6()
+\item \tbf{NICs} can extend interface entries via C++ class inheritance, that is, by
+simply subclassing \cppclass{InterfaceEntry} and adding extra data and
+functions. This is possible because NICs create and register entries in
+\nedtype{InterfaceTable}, so in their code one can just write
+\ttt{new MyExtendedInterfaceEntry()} instead of \ttt{new InterfaceEntry()}.
+
+\item \textbf{Network layer protocols} cannot add data via subclassing, so
+composition has to be used. \cppclass{InterfaceEntry} contains pointers to
+network-layer specific data structures. Currently there are four pointers:
+one for IPv4 specific data, one for IPv6 specific data, and two additional
+ones that are unassigned. The four data objects can be accessed with the
+following \cppclass{InterfaceEntry} member functions: \ffunc{ipv4Data()},
+\ffunc{ipv6Data()}, \ffunc{protocol3Data()}, and \ffunc{protocol4Data()}.
+They return pointers of the types \cppclass{IPv4InterfaceData},
+\cppclass{IPv6InterfaceData} and \cppclass{InterfaceProtocolData} (2x),
+respectively. For illustration, \cppclass{IPv4InterfaceData} is installed
+onto the interface entries by the \nedtype{RoutingTable} module, and it
+contains data such as the IP address of the interface, the netmask, link
+metric for routing, and IP multicast addresses associated with the
+interface. A protocol data pointer will be \ttt{NULL} if the corresponding
+network protocol is not used in the simulation; for example, in IPv4
+simulations only \ffunc{ipv4Data()} will return a non-\ttt{NULL} value.
+
+
+\end{itemize}
 
 
 \subsection{Interface Registration}
 
-Interfaces are registered dynamically in the
-initialization phase by modules that represent network interface cards (NICs).
+Interfaces are registered dynamically in the initialization phase by modules
+that represent network interface cards (NICs). The INET Framework makes use
+of the multi-stage initialization feature of OMNeT++, and interface registration takes
+place in the first stage (i.e. stage 0).
+
+Example code that performs interface registration:
+
+\begin{cpp}
+void PPP::initialize(int stage)
+{
+    if (stage==0) {
+        ...
+        interfaceEntry = registerInterface(datarate);
+    ...
+}
+
+InterfaceEntry *PPP::registerInterface(double datarate)
+{
+    InterfaceEntry *e = new InterfaceEntry();
+
+    // interface name: NIC module's name without special characters ([])
+    e->setName(OPP_Global::stripnonalnum(getParentModule()->getFullName()).c_str());
+
+    // data rate
+    e->setDatarate(datarate);
+
+    // generate a link-layer address to be used as interface token for IPv6
+    InterfaceToken token(0, simulation.getUniqueNumber(), 64);
+    e->setInterfaceToken(token);
+
+    // set MTU from module parameter of similar name
+    e->setMtu(par("mtu"));
+
+    // capabilities
+    e->setMulticast(true);
+    e->setPointToPoint(true);
+
+    // add
+    IInterfaceTable *ift = InterfaceTableAccess().get();
+    ift->addInterface(e, this);
+
+    return e;
+}
+\end{cpp}
+
 
 \subsection{Interface Change Notifications}
 
-\subsection{Resolving addresses with IPAddressResolver}
+\nedtype{InterfaceTable} has a change notification mechanism built in, with
+the granularity of interface entries.
 
-\subsection{Auto address assignment by FlatNetworkConfigurator}
+Clients that wish to be notified when something changes in
+\nedtype{InterfaceTable} can subscribe to the following notification
+categories in the host's \nedtype{NotificationBoard}:
 
+\begin{itemize}
+  \item \tbf{\ttt{NF\_INTERFACE\_CREATED}}: an interface entry has been
+    created and added to the interface table
+  \item \tbf{\ttt{NF\_INTERFACE\_DELETED}}: an interface entry is going
+    to be removed from the interface table. This is a pre-delete
+    notification so that clients have access to interface data that are
+    possibly needed to react to the change
+% TODO hmmm -- rename the constant? also fire a post-change notification??
+  \item \tbf{\ttt{NF\_INTERFACE\_CONFIG\_CHANGED}}: a configuration setting
+    in an interface entry has changed (e.g. MTU or IP address)
+  \item \tbf{\ttt{NF\_INTERFACE\_STATE\_CHANGED}}: a state variable in an
+    interface entry has changed (e.g. the up/down flag)
+\end{itemize}
 
-
-
-\section{The Routing Table}
-
-\nedtype{RoutingTable}:
-This module contains the IP (v4) routing table, and heavily relies
-on \nedtype{InterfaceTable} for its operation. This module is also accessed from other
-modules (typically IP) by calling the public member functions of its C++ class.
-There are member functions for querying, adding, deleting routes, and
-finding the best matching route for a given destination IP address.
-The routing table submodule within the host (router) must be called
-\ttt{routingTable} for other modules to find it.
-
-
-TODO
+In all those notifications, the data field is a pointer to the
+corresponding \cppclass{InterfaceEntry} object. This is even true for
+\ttt{NF\_INTERFACE\_DELETED} (which is actually a pre-delete notification).
 
 
 \section{Initialization Stages}

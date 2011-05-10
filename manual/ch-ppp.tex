@@ -94,22 +94,18 @@ Conceptually txQueue is of inifinite size, but for better diagnostics
 one can specify a hard limit in the \fpar{txQueueLimit} parameter -- if
 this is exceeded, the simulation stops with an error.
 
+The module can be used in simulations where the nodes are connected and
+disconnected dinamically. If the channel between the PPP modules is down,
+the messages received from the upper layer are dropped (including the messages
+waiting in the queue). When the connection is restored it will
+poll the queue and transmits the messages again. 
+
 The PPP module registers itself in the interface table of the node.
 The \fvar{mtu} of the entry can be specified by the
 \fpar{mtu} module parameter. The module checks the state of the physical link
 and updates the entry in the interface table.
-
-% FIXME:
-% When the link is down, no further messages should be sent, and
-% when it alive again, it should continue transmitting messages.
-% Currently the implementation is buggy: when the link is down,
-% datarateChannel set to NULL, but endTransmissionEvent might
-% remain in the FES, causing scheduling the next message
-% from txQueue (and an ASSERT or *NULL). On the other hand, when the
-% messages comes from the external queueModule, the next message
-% is dropped, but no further messages are requested even if the
-% line gets alive again.
-
+% FIXME: The module does not notice if the datarate of the channel changed!
+%        It should update the interface entry.
 
 The node containing the PPP module must also contain a
 \nedtype{NofiticationBoard} component. Notifications are sent when
@@ -127,12 +123,15 @@ The PPP component is the source of the following signals:
 \item \tbf{passedUpPkBytes} number of bytes sent to the the upper layer
 \end{itemize}
 
-% TODO describe animation effects: link broken, busy, idle
+These signals are recorded as statistics (sum, count and vector), so
+they can be analyzed after the simulation.
 
-% FIXME if the link originally broken the icon of the
-% component is grayed (from initialize()), but this effect
-% is not cleared, when the line is back (only when a transmission starts).
-% Furthermore oldConnColor is not initialized properly in this case.
+When the simulation is executed with the graphical user interface
+the module displays useful statistics. If the link is operating,
+the datarate and number of received, sent and dropped messages
+show in the tooltip. When the link is broken, the number of dropped
+messages is displayed. The state of the module is indicated by the color
+of the module icon and the connection (yellow=transmitting).
 
 \section{PPPInterface module}
 

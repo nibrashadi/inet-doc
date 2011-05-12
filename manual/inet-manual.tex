@@ -24,6 +24,8 @@
 \usepackage{listings}   %% source code listings with syntax highlight (lstxxx commands)
 \usepackage[tight]{shorttoc}   %% for generating a second table of contents, only containing chapter titles
 \usepackage{bytefield}  %% for drawing protocol frames
+\usepackage{tocbibind}  %% makes Bibliography and Index show up in TOC
+\settocbibname{References}
 
 \setlength{\textwidth}{160mm}
 %\setlength{\oddsidemargin}{12.5mm}
@@ -384,6 +386,9 @@
 
 \include{ch-history}
 \cleardoublepage
+
+\bibliographystyle{alpha}
+\bibliography{inet-manual}
 
 
 %% no need for the following since 'tocbibind' package

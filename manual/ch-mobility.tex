@@ -4,9 +4,18 @@
 
 \section{Overview}
 
-general overview, user level
+importance of mobility modeling in ad hoc networks
+\cite{Camp02asurvey}
+
+traces, synthetic models
+
+entity models, group models
 
 \section{Mobility in OMNeT++}
+
+supported traces:
+
+supported entity models
 
 In OMNeT++ mobile nodes have to contain a module implementing the
 \nedtype{IMobility} marker interface. This module stores the current
@@ -153,8 +162,7 @@ variate. After this time the the algorithm calculates a new random position, etc
 \item[MassMobility] 
 
 This is a random mobility model for a mobile host with
-a mass. It is the one used in "Optimized Smooth Handoffs in Mobile IP" by
-Perkins\&Wang.
+a mass. It is the one used in \cite{Perkins99optimizedsmooth}.
 
 \begin{quote}
 "An MH moves within the room according to the following pattern. It moves
@@ -183,8 +191,64 @@ changeAngleBy = normal(0, 30)
 speed = normal(avgSpeed, 0.01)
 \end{inifile}
 
-\item[GaussMarkovMobility] TODO
-\item[ChiangMobility] Chiang's random walk movement model.
+\item[GaussMarkovMobility] The Gauss-Markov model contains a tuning
+parameter, that control the randomness in the movement of the node.
+Let the magnitude and direction of speed of the node at the $n$th time step be
+$s_n$ and $d_n$. The next speed and direction is computed as
+
+$$ s_{n+1} = \alpha s_n + (1 - \alpha) \bar{s} +
+             \sqrt{(1-\alpha^2)} s_{x_n} $$
+
+$$ d_{n+1} = \alpha s_n + (1 - \alpha) \bar{d} +
+             \sqrt{(1-\alpha^2)} s_{x_n} $$
+
+where $\bar{s}$ and $\bar{d}$ are constants representing the mean value
+of speed and direction as $n \to \infty$; and $s_{x_n}$ and $d_{x_n}$
+are random variables with Gaussian distribution.
+
+Totally random walk (Brownian motion) is obtained by setting $\alpha=0$,
+while $\alpha=1$ results a linear motion.
+
+To ensure that the node does not remain at the boundary of the constraint
+area for a long time, the mean value of the direction ($\bar{d}$) modified
+as the node enters the margin area. For example at the right edge of the
+area it is set to 180 degrees, so the new direction is away from the edge.
+
+% FIXME the GaussMarkovMobility module has only one variance parameter.
+%       it should have separate speed and direction parameters
+
+\item[ChiangMobility] Chiang's random walk movement model
+(\cite{Chiang98wirelessnetwork}).
+
+In this model, the state of the mobile node in each direction (x and y) can be:
+
+\begin{itemize}
+  \item 0: the node stays in its current position
+  \item 1: the node moves in the previous direction
+  \item 2: the node moves in the next direction
+\end{itemize}
+
+The $(i,j)$ element of the state transition matrix determines the
+probability that the state changes from $i$ to $j$:
+
+$$ \left(
+\begin{array}{ccc}
+  0 & 0.5 & 0.5 \\
+  0.3 & 0.7 & 0 \\
+  0.3 & 0 & 0.7
+\end{array}
+\right) $$
+
+The \nedtype{ChiangMobility} module supports the following parameters:
+\begin{itemize}
+  \item \fpar{updateInterval} position update interval
+  \item \fpar{stateTransitionInterval} state update interval
+  \item \fpar{speed}: the speed of the node
+\end{itemize}
+
+
+% FIXME implementation is not correct
+
 \end{description}
 
 \subsection{Scripted movements}

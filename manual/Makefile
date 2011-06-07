@@ -12,30 +12,22 @@ TITLE=User Manual
 # FIXME
 TEXCHAPTERS = \
 	 ch-introduction.tex \
-	 ch-overview.tex \
-	 ch-ned-lang.tex \
-	 ch-simple-modules.tex \
-	 ch-messages.tex \
-	 ch-sim-lib.tex \
-	 ch-build-sim-progs.tex \
-	 ch-config-sim.tex \
-	 ch-run-sim.tex \
-	 ch-graphics.tex \
-	 ch-ana-sim.tex \
-	 ch-eventlog.tex \
-	 ch-neddoc.tex \
-	 ch-parallel-exec.tex \
-	 ch-plugin-exts.tex \
-	 ch-embedding.tex \
-	 appendix-ned-ref.tex \
-	 appendix-ned-grammar.tex \
-	 appendix-ned-dtd.tex \
-	 appendix-ned-functions.tex \
-	 appendix-msg-grammar.tex \
-	 appendix-display-strings.tex \
-	 appendix-config-options.tex \
-	 appendix-result-file-formats.tex \
-	 appendix-eventlog-file-format.tex
+	 ch-usage.tex \
+	 ch-node-architecture.tex \
+	 ch-ppp.tex \
+	 ch-ethernet.tex \
+	 ch-radio.tex \
+	 ch-80211.tex \
+	 ch-mobility.tex \
+	 ch-ipv4.tex \
+	 ch-ipv6.tex \
+	 ch-udp.tex \
+	 ch-tcp.tex \
+	 ch-sctp.tex \
+	 ch-routing.tex \
+	 ch-mpls.tex \
+	 ch-apps.tex \
+	 ch-history.tex
 ALLTEX = inet-manual.tex title.tex $(TEXCHAPTERS)
 HTMCHAPTERS = $(TEXCHAPTERS:.tex=.htm)
 
@@ -52,7 +44,8 @@ LOGFILTER =
 
 default: pdf html eclipse
 
-include ../cover/cover.makefrag
+# include ../cover/cover.makefrag
+cover:
 
 pdf: $(ALLTEX) $(PDFPICS) figures/*.png cover
 	pdflatex inet-manual.tex $(LOGFILTER)
@@ -60,7 +53,7 @@ pdf: $(ALLTEX) $(PDFPICS) figures/*.png cover
 	makeindex inet-manual
 	pdflatex inet-manual.tex $(LOGFILTER)
 	pdflatex inet-manual.tex $(LOGFILTER)
-	pdftk C=cover.pdf B=../cover/copyright.pdf D=inet-manual.pdf cat C B D3-end output ../../Manual.pdf
+#	pdftk C=cover.pdf B=../cover/copyright.pdf D=inet-manual.pdf cat C B D3-end output ../../Manual.pdf
 	rm -f *.aux *.idx *.ilg *.ind *.log *.out *.toc *.blg
 
 %.pdf: %.svg

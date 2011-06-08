@@ -1,8 +1,15 @@
 \chapter{The Ethernet Model}
 \label{cha:ethernet}
 
+% FIXME: EtherBus default propagationSpeed
+% TODO: comment numWirelessPorts in MacRelayUnitPP
+% TODO: comment origByteLength in EtherFrame
+% FIXME: wrong header length in EtherFrame.msg
+% TODO: we cant send EtherFrameWithSnap
 
 \section{Overview}
+
+Variations: 10Mb/s ethernet, fast ethernet, Gigabit Ethernet, Fast Gigabit Ethernet, full duplex
 
 The Ethernet model contains a MAC model (\nedtype{EtherMAC}), LLC model (\nedtype{EtherLLC}) as well
 as a bus (\nedtype{EtherBus}, for modelling coaxial cable) and a hub (\nedtype{EtherHub}) model.
@@ -26,25 +33,298 @@ Sample simulations:
         kinds of Ethernet technologies
 \end{itemize}
 
+\subsection{Implemented Standards}
 
-\section{Data packets and Ethernet frames}
+The Ethernet model operates according to the following standards:
 
-Ethernet frames carry data packets as encapsulated cMessage objects.
-Data packets can be of any message type (cMessage or cMessage subclass).
+\begin{itemize}
+  \item Gigabit Ethernet: IEEE 802.3z-1998
+  \item Full-Duplex Ethernet with Flow Control: IEEE 802.3x-1997
+  \item Fast Ethernet: IEEE 802.3u-1995
+  \item Ethernet: IEEE 802.3-1998
+\end{itemize}
 
-The model encapsulates data packets in Ethernet frames using the \ttt{encapsulate()}
-method of cMessage. Encapsulate() updates the length of the Ethernet frame too,
-so the model doesn't have to take care of that.
+Note: switches don't implement the Spanning Tree Protocol. You need to
+avoid cycles in the LAN topology.
 
-The models supports various Ethernet frame types: Ethernet II, 803.2 with
-LLC header, and 803.3 with LLC and SNAP headers. The corresponding classes are:
-\msgtype{EthernetIIFrame}, \msgtype{EtherFrameWithLLC} and \msgtype{EtherFrameWithSNAP}. They all class
-from \msgtype{EtherFrame} which only represents the basic MAC frame with source and
-destination addresses. \nedtype{EtherMAC} only deals with \msgtype{EtherFrame}s, and does not
-care about the specific subclass.
+\section{Physical layer}
+
+\subsection{EtherBus}
+
+A generic bus model.
+
+The ethg[i] gates represent taps. Messages arriving on a tap
+travel on the bus on both directions, and copies of it are sent out
+on every other tap after delays proportional to their distances.
+
+Tap connections should have zero delays and zero data rates!
+
+Messages are not interpreted by the bus model in any way, thus the bus
+model is not specific to Ethernet in any way. Messages may
+represent anything, from the beginning of a frame transmission to
+end (or abortion) of transmission.
+
+% FIXME: NED comment is wrong: data rate must not be zero!
+
+\subsection{EtherHub}
+
+A generic wiring hub model.
+
+ethg[i] gates represent ports. Messages arriving on a port are broadcast
+to every other port.
+
+The connections should have data rate set to zero. Cable lengths
+should be reflected in the delays of the connections.
+
+Messages are not interpreted by the hub model in any way, thus the hub
+model is not specific to Ethernet in any way. Messages may
+represent anything, from the beginning of a frame transmission to
+end (or abortion) of transmission.
+
+each connection datarate must have the same datarate (should not be zero)
+
+% FIXME: NED comment is wrong: data rate must not be zero!
+% FIXME: default propagation speed is wrong (should be 2e8mps)
+%        btw there is a hard coded propagation speed in EtherMACBase.cc
+
+\section{MAC layer}
+
+\subsection{IEtherMac}
+
+defined in inet.linklayer.base
+
+\subsection{EtherMAC}
+
+Ethernet MAC layer. MAC performs transmission and reception of frames.
+See the ~IEtherMAC for the Ethernet MAC layer general informations.
+Doesn't do encapsulation/decapsulation; see ~EtherLLC and ~EtherEncap for
+that.
+
+Supported variations:
+- 10Mb Ethernet bus or twisted pair
+- 100Mb Ethernet duplex or half-duplex
+- 1Gb Ethernet
+
+Supports all three Ethernet frame types. (It handles ~EtherFrame message class;
+specific frame classes (Ethernet-II, IEEE 802.3) are subclassed from that one.)
+RAW mode (only used by the IPX protocol) is not supported.
+
+Expected environment:
+- phys$i and phys$o should be connected to the "network"
+- upperLayerIn and upperLayerOut are usually connected to ~EtherLLC (in hosts)
+  or ~MACRelayUnitPP (in a switch)
+
+<b>Operation</b>
+
+Processing of frames received from higher layers:
+- if src address in the frame is empty, fill it out
+- frames get queued up until transmission
+- transmit according to the CSMA/CD protocol
+- can send PAUSE message if requested by higher layers (PAUSE protocol,
+  used in switches).
+
+Processing of frames incoming from the network:
+- receive according to the CSMA/CD protocol
+- CRC checking (frames with the error bit set are discarded).
+- respond to PAUSE frames
+- in promiscuous mode, pass up all received frames;
+  otherwise, only frames with matching MAC addresses and
+  broadcast frames are passed up.
+
+The module does not perform encapsulation or decapsulation of frames --
+this is done by higher layers (~EtherLLC or ~EtherEncap).
+
+When a frame is received from the higher layers, it must be an ~EtherFrame,
+and with all protocol fields filled out
+(including the destination MAC address). The source address, if left empty,
+will be filled in. Then frame is queued and transmitted according
+to the CSMA/CD protocol.
+
+Data frames received from the network are EtherFrames. They are passed to
+the higher layers without modification.
+Also, the module properly responds to PAUSE frames, but never sends them
+by itself -- however, it transmits PAUSE frames received from upper layers.
+See <a href="ether-pause.html">PAUSE handling</a> for more info.
+
+For more info see <a href="ether-overview.html">Ethernet Model Overview</a>.
+
+<b>Disabling and disconnecting</b>
+
+If the MAC is not connected to the network ("cable unplugged"), it will
+start up in "disabled" mode. A disabled MAC simply discards any messages
+it receives. It is currently not supported to dynamically connect/disconnect
+a MAC.
 
 
-\section{Autoconfiguration}
+<b>Queueing</b>
+
+In routers, MAC relies on an external queue module (see ~OutputQueue)
+to model finite buffer, implement QoS and/or RED, and requests packets
+from this external queue one-by-one.
+
+In hosts, no such queue is used, so MAC contains an internal
+queue named txQueue to queue up packets waiting for transmission.
+Conceptually, txQueue is of infinite size, but for better diagnostics
+one can specify a hard limit in the txQueueLimit parameter -- if this is
+exceeded, the simulation stops with an error.
+
+
+<b>Physical layer messaging</b>
+
+Please see <a href="physical.html">Messaging on the physical layer</a>.
+
+<b>Statistics</b>
+
+Output vectors:
+- txPkBytes: bytes sent, including Ethernet frame fields (but excluding preamble and SFD)
+- rxPkBytesOK: total bytes received  without collision or CRC error,
+  including Ethernet frame fields (but excluding preamble and SFD)
+- passedUpPkBytes: number of bytes of frames actually passed up to higher layer
+- txPausePkUnits: number of PAUSE frames sent out
+- rxPausePkUnits: number of PAUSE frames received from network
+- rxPkBytesFromHL: number of bytes of frames received from higher layer
+- collision: number of collisions (NOT number of collided frames!) sensed
+- backoff: number of retransmissions
+- droppedPkBytesIfaceDown: number of bytes of frames from higher layer dropped
+- droppedPkBytesBitError: number of bytes of frames dropped because of bit errors
+- droppedPkBytesNotForUs: number of bytes of frames dropped because destination address didn't match
+
+Output scalars (written in the finish() function) include the final values of
+the above variables and throughput.
+
+@see ~EtherMACFullDuplex, ~EthernetInterface, ~IOutputQueue, ~EtherEncap, ~EtherLLC
+@see ~EtherFrame, ~EthernetIIFrame, ~EtherFrameWithLLC, ~Ieee802Ctrl
+
+\subsection{EtherMACFullDuplex}
+
+
+Ethernet MAC which supports full duplex operation ONLY.
+See the ~IEtherMAC for general informations.
+
+Most of today's Ethernet networks are switched, and operate
+in full duplex mode. Full-duplex transmission can be used for
+point-to-point connections only. Since full-duplex connections
+cannot be shared, collisions are eliminated. This setup eliminates
+most of the need for the CSMA/CD access control mechanism because
+there is no need to determine whether the connection is already
+being used. This allows for a much simpler simulation model
+for MAC. (In "traditional" Ethernet simulations, most of the code
+deals with the shared medium and the CSMA/CD mechanism.)
+~EtherMACFullDuplex implements Ethernet without shared medium and CSMA/CD.
+(If you need half-duplex operation, see ~EtherMAC which is for a full-blown
+and therefore more complicated Ethernet MAC model.)
+
+~EtherMACFullDuplex performs transmission and reception of frames.
+It does not do encapsulation/decapsulation; see ~EtherLLC and ~EtherEncap
+for that.
+
+Supported variations:
+- 10Mb Ethernet (full duplex mode)
+- 100Mb Ethernet (full duplex mode)
+- 1Gb Ethernet (full duplex mode)
+
+Supports all three Ethernet frame types. (It handles ~EtherFrame message class;
+specific frame classes (Ethernet-II, IEEE 802.3) are subclassed from that one.)
+RAW mode (only used by the IPX protocol) is not supported.
+
+<b>Operation</b>
+
+Processing of frames received from higher layers:
+- if src address in the frame is empty, fill it out
+- frames get queued up until transmission
+- transmit according to the CSMA/CD protocol
+- can send PAUSE message if requested by higher layers (PAUSE protocol,
+  used in switches).
+
+Processing of frames incoming from the network:
+- receive according to the CSMA/CD protocol
+- CRC checking (frames with the error bit set are discarded).
+- respond to PAUSE frames
+- in promiscuous mode, pass up all received frames;
+  otherwise, only frames with matching MAC addresses and
+  broadcast frames are passed up.
+
+The module does not perform encapsulation or decapsulation of frames --
+this is done by higher layers (~EtherLLC or ~EtherEncap).
+
+When a frame is received from the higher layers, it must be an ~EtherFrame,
+and with all protocol fields filled out
+(including the destination MAC address). The source address, if left empty,
+will be filled in. Then frame is queued and transmitted according
+to the CSMA/CD protocol.
+
+Data frames received from the network are EtherFrames. They are passed to
+the higher layers without modification.
+Also, the module properly responds to PAUSE frames, but never sends them
+by itself -- however, it transmits PAUSE frames received from upper layers.
+See <a href="ether-pause.html">PAUSE handling</a> for more info.
+
+<b>Disabling and disconnecting</b>
+
+If the MAC is not connected to the network ("cable unplugged"), it will
+start up in "disabled" mode. A disabled MAC simply discards any messages
+it receives. It is currently not supported to dynamically connect/disconnect
+a MAC.
+
+
+<b>Queueing</b>
+
+In routers, MAC relies on an external queue module (see ~IOutputQueue)
+to model finite buffer, implement QoS and/or RED, and requests packets
+from this external queue one-by-one.
+
+In hosts, no such queue is used, so MAC contains an internal
+queue named txQueue to queue up packets waiting for transmission.
+Conceptually, txQueue is of infinite size, but for better diagnostics
+one can specify a hard limit in the txQueueLimit parameter -- if this is
+exceeded, the simulation stops with an error.
+
+
+<b>Physical layer messaging</b>
+
+Please see <a href="physical.html">Messaging on the physical layer</a>.
+
+<b>Statistics</b>
+
+Output vectors:
+- txPkBytes: bytes sent, including Ethernet frame fields (but excluding preamble and SFD)
+- rxPkBytesOK: total bytes received  without collision or CRC error,
+  including Ethernet frame fields (but excluding preamble and SFD)
+- passedUpPkBytes: number of bytes of frames actually passed up to higher layer
+- txPausePkUnits: number of PAUSE frames sent out
+- rxPausePkUnits: number of PAUSE frames received from network
+- rxPkBytesFromHL: number of bytes of frames received from higher layer
+- droppedPkBytesIfaceDown: number of bytes of frames from higher layer dropped
+- droppedPkBytesBitError: number of bytes of frames dropped because of bit errors
+- droppedPkBytesNotForUs: number of bytes of frames dropped because destination address didn't match
+
+Output scalars (written in the finish() function) include the final values of
+the above variables and throughput.
+
+% TODO notifications: NF_PP_TX_BEGIN, NF_PP_TX_END, NF_PP_RX_END
+
+\subsection{Messaging on the Physical Layer}
+
+Messages sent by \nedtype{EtherMAC} mark the beginning of a transmission.
+The end of a transmission is not explicitly represented by a message,
+but instead, the \nedtype{EtherMAC} calculates it from the frame length and
+the transmission rate. Frames are represented by \msgtype{EtherFrame}.
+
+When frames collide, the transmission is aborted -- in this case
+\nedtype{EtherMAC} makes use of the modelled jam signals to figure out
+when colliding transmissions end.
+
+When a transmitting station senses a collision, it transmits a jam signal.
+Jam signals are represented by a \msgtype{EtherJam} message.
+When \nedtype{EtherMAC} received a jam signal, it knows that one transmission
+has ended in jamming -- thus when it receives as many jam messages
+as colliding frames, it can be sure all transmissions have been aborted.
+
+Receiving a jam message marks the beginning (and not the end)
+of a jam signal, so actually \nedtype{EtherMAC} has to wait for the duration
+of the jamming before assuming the channel is free again.
+
+\subsection{Autoconfiguration}
 
 In order to facilitate building large models, \nedtype{EtherMAC} and other Ethernet model
 components provide some degree of auto-configuration. Specifically, transmission
@@ -76,15 +356,225 @@ Ethernet model components (\nedtype{EtherMAC}, \nedtype{EtherHub} and \nedtype{E
 \msgtype{EtherAutoconfig} messages with each other. See description of \msgtype{EtherAutoconfig}
 for more info.
 
-\section{MAC and higher layers}
+\subsection{MAC and higher layers}
 
 MAC and LLC are implemented as separate modules (\nedtype{EtherMAC} and
 \nedtype{EtherLLC}/\nedtype{EtherEncap}) because encapsulation/decapsulation functionality
 is not always needed. (Switches don't do encapsulation/decapsulation.)
 In switches, \nedtype{EtherMAC} is used with \nedtype{MACRelayUnit}.
 
+\subsection{PAUSE handling}
 
-\section{\nedtype{EtherLLC} and higher layers}
+The 802.3x standard supports PAUSE frames as a means of flow
+control. The frame contains a timer value, expressed as a multiple
+of 512 bit-times, that specifies how long the transmitter should
+remain quiet. If the receiver becomes uncongested before the
+transmitter's pause timer expires, the receiver may elect to send
+another Pause frame to the transmitter with a timer value of zero,
+allowing the transmitter to resume immediately.
+
+\nedtype{EtherMAC} will properly respond to PAUSE frames it receives
+(\msgtype{EtherPauseFrame} class),
+however it will never send a PAUSE frame by itself. (For one thing,
+it doesn't have an input buffer that can overflow.)
+
+\nedtype{EtherMAC}, however, transmits PAUSE frames received by higher layers,
+and \nedtype{EtherLLC} can be instructed by a command to send a PAUSE frame to MAC.
+
+\nedtype{MACRelayUnit} types (and thus \nedtype{EtherSwitch}) currently implement a very simple
+scheme for sending PAUSE frames -- this can be refined if the need arises.
+
+
+\section{Switches}
+
+\subsection{MACRelayUnitNP}
+
+A IMACRelayUnit implementation which models one or more CPUs
+with shared memory, working from a single shared queue.
+
+It also models fixed delay for precessing each frame.
+Finite memory is taken into account by dropping frames if
+total number of bits enqueued exceed a given limit.
+
+A simple scheme for sending PAUSE frames is built in (although
+users will probably change it). When the buffer level goes
+above a high watermark, PAUSE frames are sent on all ports.
+The watermark and the pause time is configurable; use zero
+values to disable the PAUSE feature.
+
+\subsection{MACRelayUnitPP}
+
+A ~IMACRelayUnit implementation which models one CPU assigned to each
+incoming port, working with shared memory but separate queues.
+
+It also models fixed delay for precessing each frame.
+Finite memory is taken into account by dropping frames if
+total number of bits enqueued exceed a given limit.
+
+A simple scheme for sending PAUSE frames is built in (although
+users will probably change it). When the buffer level goes
+above a high watermark, PAUSE frames are sent on all ports.
+The watermark and the pause time is configurable; use zero
+values to disable the PAUSE feature.
+
+\subsection{EtherSwitch}
+
+Model of an Ethernet switch.
+
+The duplexChannel attributes of the MACs must be set according to the
+medium connected to the port; if collisions are possible (it's a bus or hub)
+it must be set to false, otherwise it can be set to true.
+By default used half duples CSMA/CD mac
+
+This model does not contain the spanning tree algorithm.
+
+\section{Link Layer Control}
+
+% FIXME there is no module for sending EtherFrameWithSNAP frames
+% FIXME ETHER_SNAP_HEADER_LENGTH is wrong in Ethernet.h (+3 bytes, ssap+dsap+control)
+
+\subsection{Frame types}
+
+The raw 802.3 frame format header contains the MAC addresses of the destination and source
+of the packet and the length of the data field. The frame footer contains the FCS
+(Frame Check Sequence) field which is a 32-bit CRC.
+
+\begin{center}
+\begin{bytefield}[bitwidth=1.2em,bitheight=2\baselineskip]{20}
+\bitbox{4}{\small MAC \\ destination} &
+\bitbox{4}{\small MAC \\ source} &
+\bitbox{4}{\small Length} &
+\bitbox{4}{\small Payload} &
+\bitbox{4}{\small FCS} \\
+\bitbox{4}{\small 6 octets} &
+\bitbox{4}{\small 6 octets} &
+\bitbox{4}{\small 2 octets} &
+\bitbox{4}{\small 46-1500 octets} &
+\bitbox{4}{\small 4 octets}
+\end{bytefield}
+\end{center}
+
+Each such frame is preceded by a 7 octet Preamble (with 10101010 octets) and
+a 1 octet SFD (Start of Frame Delimiter) field (10101011) and followed by an
+12 octet interframe gap. These fields are added and removed in the MAC layer,
+so they are omitted here.
+
+When multiple upper layer protocols use the same Ethernet line,
+the kernel has to know which which component handles the incoming frames.
+For this purpose a protocol identifier was added to the standard Ethernet
+frames.
+
+The first solution preceded the 802.3 standard and used a 2 byte protocol
+identifier in place of the Length field. This is called Ethernet II
+or DIX frame.
+Each protocol id is above 1536, so the Ethernet II frames and the 802.3
+frames can be distinguished.
+
+\begin{center}
+\begin{bytefield}[bitwidth=1.2em,bitheight=2\baselineskip]{20}
+\bitbox{4}{\small MAC \\ destination} &
+\bitbox{4}{\small MAC \\ source} &
+\bitbox{4}{\small EtherType} &
+\bitbox{4}{\small Payload} &
+\bitbox{4}{\small FCS} \\
+\bitbox{4}{\small 6 octets} &
+\bitbox{4}{\small 6 octets} &
+\bitbox{4}{\small 2 octets} &
+\bitbox{4}{\small 46-1500 octets} &
+\bitbox{4}{\small 4 octets}
+\end{bytefield}
+\end{center}
+
+The LLC frame format uses a 1 byte source, a 1 byte destination, and a 1 byte
+control information to identify the encapsulated protocol adopted from the
+802.2 standard. These fields follow the standard 802.3 header, so the maximum
+length of the payload is 1497 bytes:
+
+\begin{center}
+\begin{bytefield}[bitwidth=1.2em,bitheight=2\baselineskip]{20}
+\bitbox{4}{\small MAC \\ destination} &
+\bitbox{4}{\small MAC \\ source} &
+\bitbox{4}{\small Length} &
+\bitbox{4}{\small DSAP} &
+\bitbox{4}{\small SSAP} &
+\bitbox{4}{\small Control} &
+\bitbox{4}{\small Payload} &
+\bitbox{4}{\small FCS} \\
+\bitbox{4}{\small 6 octets} &
+\bitbox{4}{\small 6 octets} &
+\bitbox{4}{\small 2 octets} &
+\bitbox{4}{\small 1 octets} &
+\bitbox{4}{\small 1 octets} &
+\bitbox{4}{\small 1 octets} &
+\bitbox{4}{\small 43-1497 octets} &
+\bitbox{4}{\small 4 octets}
+\end{bytefield}
+\end{center}
+
+The SNAP header uses the EtherType protocol identifiers inside an LLC header.
+The SSAP and DSAP fields are filled with 0xAA (SAP\_SNAP), and the control
+field is 0x03. They are followed by a 3 byte orgnaization and a 2 byte local
+code the identify the protocol. If the organization code is 0, the local field
+contains an EtherType protocol identifier.
+
+\begin{center}
+\begin{bytefield}[bitwidth=1.2em,bitheight=2\baselineskip]{20}
+\bitbox{4}{\small MAC \\ destination} &
+\bitbox{4}{\small MAC \\ source} &
+\bitbox{4}{\small Length} &
+\bitbox{4}{\small DSAP \\ 0xAA} &
+\bitbox{4}{\small SSAP \\ 0xAA} &
+\bitbox{4}{\small Control \\ 0x03} &
+\bitbox{4}{\small OrgCode} &
+\bitbox{4}{\small Local \\ Code} &
+\bitbox{4}{\small Payload} &
+\bitbox{4}{\small FCS} \\
+\bitbox{4}{\small 6 octets} &
+\bitbox{4}{\small 6 octets} &
+\bitbox{4}{\small 2 octets} &
+\bitbox{4}{\small 1 octets} &
+\bitbox{4}{\small 1 octets} &
+\bitbox{4}{\small 1 octets} &
+\bitbox{4}{\small 3 octets} &
+\bitbox{4}{\small 2 octets} &
+\bitbox{4}{\small 38-1492 octets} &
+\bitbox{4}{\small 4 octets}
+\end{bytefield}
+\end{center}
+
+The INET defines these frames in the \ffilename{EtherFrame.msg} file.
+The models supports Ethernet II, 803.2 with LLC header, and 803.3 with LLC and SNAP headers.
+The corresponding classes are:
+\msgtype{EthernetIIFrame}, \msgtype{EtherFrameWithLLC} and \msgtype{EtherFrameWithSNAP}. They all class
+from \msgtype{EtherFrame} which only represents the basic MAC frame with source and
+destination addresses. \nedtype{EtherMAC} only deals with \msgtype{EtherFrame}s, and does not
+care about the specific subclass.
+
+Ethernet frames carry data packets as encapsulated cMessage objects.
+Data packets can be of any message type (cMessage or cMessage subclass).
+
+The model encapsulates data packets in Ethernet frames using the \ttt{encapsulate()}
+method of cMessage. Encapsulate() updates the length of the Ethernet frame too,
+so the model doesn't have to take care of that.
+
+The fields of the Ethernet header are passed in a \cppclass{Ieee802Ctrl}
+control structure to the LLC by the network layer.
+
+EtherJam, EtherPadding (interframe gap), EtherPauseFrame?
+
+
+\subsection{EtherEncap}
+
+EtherFrameII
+
+\subsection{EtherLLC}
+
+EtherFrameWithLLC
+
+% TODO delete EtherLLC, because LLC without SNAP is not used with IP (no ARP,IPv6 SAP)
+% TODO modify EtherEncap to handle EtherFrameWithSNAP frames too (we can not send EtherFrameWithSNAP now)
+
+\subsubsection{\nedtype{EtherLLC} and higher layers}
 
 The \nedtype{EtherLLC} module can serve several applications (higher layer protocols),
 and dispatch data to them. Higher layers are identified by DSAP.
@@ -93,23 +583,7 @@ See section "Application registration" for more info.
 \nedtype{EtherEncap} doesn't have the functionality to dispatch to different
 higher layers because in practice it'll always be used with IP.
 
-
-\section{Implemented Standards}
-
-The Ethernet model operates according to the following standards:
-
-\begin{itemize}
-  \item Gigabit Ethernet: IEEE 802.3z-1998
-  \item Full-Duplex Ethernet with Flow Control: IEEE 802.3x-1997
-  \item Fast Ethernet: IEEE 802.3u-1995
-  \item Ethernet: IEEE 802.3-1998
-\end{itemize}
-
-Note: switches don't implement the Spanning Tree Protocol. You need to
-avoid cycles in the LAN topology.
-
-
-\section{Communication between LLC and Higher Layers}
+\subsubsection{Communication between LLC and Higher Layers}
 
 Higher layers (applications or protocols) talk to the \nedtype{EtherLLC} module.
 
@@ -138,7 +612,7 @@ When the command doesn't involve a data packet (e.g.
 IEEE802CTRL\_(DE)REGISTER\_DSAP, IEEE802CTRL\_SENDPAUSE), a dummy packet
 (empty cMessage) is used.
 
-\section{Rationale}
+\subsubsection{Rationale}
 
 The alternative of the above communications would be:
 
@@ -161,7 +635,7 @@ data packets travelling between the higher layer and Ethernet
 modules -- as opposed to "interface" packets.
 
 
-\section{EtherLLC: SAP Registration}
+\subsubsection{EtherLLC: SAP Registration}
 
 The Ethernet model supports multiple applications or higher layer
 protocols.
@@ -177,56 +651,54 @@ have to connect to different ports of \nedtype{EtherLLC}.
 The ETHERCTRL\_REGISTER\_DSAP/IEEE802CTRL\_DEREGISTER\_DSAP commands use only the
 dsap field in the \cppclass{Ieee802Ctrl} structure.
 
+\subsection{EthernetInterface module}
 
-\section{Messaging on the Physical Layer}
+The \nedtype{EthernetInterface} compound module implements the \nedtype{IWiredNic}
+interface. Complements \nedtype{EtherMAC} and \nedtype{EtherEncap} with an output queue
+for QoS and RED support. It also has configurable input/output filters as \nedtype{IHook}
+components similarly to the \nedtype{PPPInterface} module.
 
-Messages sent by \nedtype{EtherMAC} mark the beginning of a transmission.
-The end of a transmission is not explicitly represented by a message,
-but instead, the \nedtype{EtherMAC} calculates it from the frame length and
-the transmission rate. Frames are represented by \msgtype{EtherFrame}.
+% TODO there is no IWiredNic with EtherLLC
 
-When frames collide, the transmission is aborted -- in this case
-\nedtype{EtherMAC} makes use of the modelled jam signals to figure out
-when colliding transmissions end.
+\section{Ethernet applications}
 
-When a transmitting station senses a collision, it transmits a jam signal.
-Jam signals are represented by a \msgtype{EtherJam} message.
-When \nedtype{EtherMAC} received a jam signal, it knows that one transmission
-has ended in jamming -- thus when it receives as many jam messages
-as colliding frames, it can be sure all transmissions have been aborted.
+The \nedtype{inet.applications.ethernet} package contains modules
+for a simple client-server application. The \nedtype{EtherAppCli} is a simple
+traffic generator that peridically sends \msgtype{EtherAppReq} messages
+whose length can be configured. destAddress, startTime,waitType, reqLength, respLength
 
-Receiving a jam message marks the beginning (and not the end)
-of a jam signal, so actually \nedtype{EtherMAC} has to wait for the duration
-of the jamming before assuming the channel is free again.
+The server component of the model (\nedtype{EtherAppSrv}) responds with a
+\msgtype{EtherAppResp} message of the requested length. If the response does
+not fit into one ethernet frame, the client receives the data in multiple
+chunks.
 
+% FIXME reqLength>1500 causes an error in the LLC module
+% FIXME numFrames field of EtherAppRes is not used
+% FIXME server always sends 1497 byte chunks, it should depend on the framing (1497 is for LLC)
+% FIXME if registerSAP is false (default), the and EtherLLC used, then the client won't receive messages (auto config?)
+% FIXME Ieee802Nic -> EthernetInterface in the NED comment
 
+Both applications have a \fpar{registerSAP} boolean parameter.
+This parameter should be set to \ttt{true} if the application is connected
+to the \nedtype{EtherLLC} module which requires registration of the SAP
+before sending frames.
 
-\section{PAUSE handling}
+Both applications collects the following statistics: sentPkBytes, rcvdPkBytes,
+endToEndDelay.
 
-The 802.3x standard supports PAUSE frames as a means of flow
-control. The frame contains a timer value, expressed as a multiple
-of 512 bit-times, that specifies how long the transmitter should
-remain quiet. If the receiver becomes uncongested before the
-transmitter's pause timer expires, the receiver may elect to send
-another Pause frame to the transmitter with a timer value of zero,
-allowing the transmitter to resume immediately.
+The client and server application works with any model that accepts
+Ieee802Ctrl control info on the packets (e.g. the 802.11 model).
+The applications should be connected directly to the \nedtype{EtherLLC}
+or an EthernetInterface NIC module.
 
-\nedtype{EtherMAC} will properly respond to PAUSE frames it receives
-(\msgtype{EtherPauseFrame} class),
-however it will never send a PAUSE frame by itself. (For one thing,
-it doesn't have an input buffer that can overflow.)
+The model also contains a host component that groups the applications
+and the LLC and MAC components together (\nedtype{EtherHost}). This node does
+not contain higher layer protocols, it generates Ethernet traffic directly.
+By default it is configured to use half duplex MAC (CSMA/CD).
 
-\nedtype{EtherMAC}, however, transmits PAUSE frames received by higher layers,
-and \nedtype{EtherLLC} can be instructed by a command to send a PAUSE frame to MAC.
+\section{Ethernet networks}
 
-\nedtype{MACRelayUnit} types (and thus \nedtype{EtherSwitch}) currently implement a very simple
-scheme for sending PAUSE frames -- this can be refined if the need arises.
-
-
-
-
-
-\section{\nedtype{LargeNet} model description}
+\subsection{\nedtype{LargeNet} model}
 
 The \nedtype{LargeNet} model demonstrates how one can put together models of large
 LANs with little effort, making use of MAC auto-configuration.
@@ -291,11 +763,7 @@ The model can also record output vectors, but this is currently
 disabled in omnetpp.ini because the generated file can easily reach
 gigabyte sizes.
 
-
-
 %%% Local Variables:
 %%% mode: latex
 %%% TeX-master: "usman"
 %%% End:
-
-

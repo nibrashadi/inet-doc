@@ -1,11 +1,9 @@
 \chapter{The Ethernet Model}
 \label{cha:ethernet}
 
-% FIXME: EtherBus default propagationSpeed
 % TODO: comment numWirelessPorts in MacRelayUnitPP
 % TODO: comment origByteLength in EtherFrame
 % FIXME: wrong header length in EtherFrame.msg
-% TODO: we cant send EtherFrameWithSnap
 
 \section{Overview}
 
@@ -38,10 +36,10 @@ Sample simulations:
 The Ethernet model operates according to the following standards:
 
 \begin{itemize}
-  \item Gigabit Ethernet: IEEE 802.3z-1998
-  \item Full-Duplex Ethernet with Flow Control: IEEE 802.3x-1997
-  \item Fast Ethernet: IEEE 802.3u-1995
   \item Ethernet: IEEE 802.3-1998
+  \item Fast Ethernet: IEEE 802.3u-1995
+  \item Full-Duplex Ethernet with Flow Control: IEEE 802.3x-1997
+  \item Gigabit Ethernet: IEEE 802.3z-1998
 \end{itemize}
 
 Note: switches don't implement the Spanning Tree Protocol. You need to
@@ -49,93 +47,96 @@ avoid cycles in the LAN topology.
 
 \section{Physical layer}
 
+The nodes of the Ethernet networks are connected by coaxial,
+twisted pair or fibre cables. There are several cable types specified
+in the standard.
+
+In the INET framework, the cables are represented by connections.
+The connections used in Ethernet LANs must be derived from
+\nedtype{DatarateConnection} and should have their \fpar{delay} and
+\fpar{datarate} parameters set.
+The delay parameter can be used to model the distance between the
+nodes. The datarate parameter can have four values:
+
+\begin{itemize}
+  \item \ttt{10Mbps} classic Ethernet
+  \item \ttt{100Mbps} Fast Ethernet
+  \item \ttt{1Gbps} Gigabit Ethernet
+  \item \ttt{10Gbps} Fast Gigabit Ethernet
+\end{itemize}
+
+
 \subsection{EtherBus}
 
-A generic bus model.
+The \nedtype{EtherBus} component can model a common coaxial cable
+found in earlier Ethernet LANs. The nodes are attached at specific
+positions of the cable. If a node sends a packet, it is transmitted
+in both direction by a given propagation speed.
 
-The ethg[i] gates represent taps. Messages arriving on a tap
-travel on the bus on both directions, and copies of it are sent out
-on every other tap after delays proportional to their distances.
-
-Tap connections should have zero delays and zero data rates!
+The gates of the \nedtype{EtherBus} represent taps. The positions
+of the taps are given by the \fpar{positions} parameter as a
+space separated list of distances in metres. If there are more
+gates then positions given, the last distance is repeated.
+The bus component send the incoming message in one direction and
+a copy of the message to the other direction (except at the ends).
+The propagation delays are computed from the distances of the taps
+and the \fpar{propagationSpeed} parameter.
 
 Messages are not interpreted by the bus model in any way, thus the bus
 model is not specific to Ethernet in any way. Messages may
 represent anything, from the beginning of a frame transmission to
 end (or abortion) of transmission.
 
-% FIXME: NED comment is wrong: data rate must not be zero!
+% FIXME #356 NED comment is wrong: data rate must not be zero!
+% FIXME #354 default propagation speed is wrong (should be 2e8mps)
+%            btw there is a hard coded propagation speed in EtherMACBase.cc
 
 \subsection{EtherHub}
 
-A generic wiring hub model.
+Ethernet hubs are a simple broadcast devices. Messages arriving on a port
+are regenerated and broadcast to every other port.
 
-ethg[i] gates represent ports. Messages arriving on a port are broadcast
-to every other port.
+The connections connected to the hub must have the same data rate.
+Cable lengths should be reflected in the delays of the connections.
 
-The connections should have data rate set to zero. Cable lengths
-should be reflected in the delays of the connections.
-
-Messages are not interpreted by the hub model in any way, thus the hub
-model is not specific to Ethernet in any way. Messages may
+Messages are not interpreted by the \nedtype{EtherType} hub model in aby way,
+thus the hub model is not specific to Ethernet. Messages may
 represent anything, from the beginning of a frame transmission to
 end (or abortion) of transmission.
 
-each connection datarate must have the same datarate (should not be zero)
+The hub module collects the following statistics:
 
-% FIXME: NED comment is wrong: data rate must not be zero!
-% FIXME: default propagation speed is wrong (should be 2e8mps)
-%        btw there is a hard coded propagation speed in EtherMACBase.cc
+\begin{itemize}
+\item \ttt{pkBytes} handled packets length (vector)
+\item \ttt{messages/sec} number of packets per seconds (scalar)
+\end{itemize}
+
+% FIXME #356 NED comment is wrong: data rate must not be zero!
+% TODO: model delay in hubs: class I device 140 bit time, class II device 92 bit time (for fast ethernet)
 
 \section{MAC layer}
 
-\subsection{IEtherMac}
+\subsection{IEtherMAC}
 
-defined in inet.linklayer.base
+defined in inet.linklayer
 
-\subsection{EtherMAC}
-
-Ethernet MAC layer. MAC performs transmission and reception of frames.
-See the ~IEtherMAC for the Ethernet MAC layer general informations.
-Doesn't do encapsulation/decapsulation; see ~EtherLLC and ~EtherEncap for
-that.
-
-Supported variations:
-- 10Mb Ethernet bus or twisted pair
-- 100Mb Ethernet duplex or half-duplex
-- 1Gb Ethernet
-
-Supports all three Ethernet frame types. (It handles ~EtherFrame message class;
-specific frame classes (Ethernet-II, IEEE 802.3) are subclassed from that one.)
-RAW mode (only used by the IPX protocol) is not supported.
+Interface for Ethernet MAC implementations. All Ethernet MAC implementations
+should implement this (i.e. declared as: EtherMAC like IEtherMAC).
+The existing implementations are these: \nedtype{EtherMAC} and
+\nedtype{EtherMACFullDuplex}.
 
 Expected environment:
-- phys$i and phys$o should be connected to the "network"
-- upperLayerIn and upperLayerOut are usually connected to ~EtherLLC (in hosts)
-  or ~MACRelayUnitPP (in a switch)
-
-<b>Operation</b>
-
-Processing of frames received from higher layers:
-- if src address in the frame is empty, fill it out
-- frames get queued up until transmission
-- transmit according to the CSMA/CD protocol
-- can send PAUSE message if requested by higher layers (PAUSE protocol,
-  used in switches).
-
-Processing of frames incoming from the network:
-- receive according to the CSMA/CD protocol
-- CRC checking (frames with the error bit set are discarded).
-- respond to PAUSE frames
-- in promiscuous mode, pass up all received frames;
-  otherwise, only frames with matching MAC addresses and
-  broadcast frames are passed up.
+\begin{itemize}
+\item \verb!phys$i! and \verb!phys$o! should be connected to the "network"
+\item upperLayerIn and upperLayerOut are usually connected to
+  nedtype{EtherLLC} (in hosts) or \nedtype{MACRelayUnitPP} (in a switch)
+\end{itemize}
 
 The module does not perform encapsulation or decapsulation of frames --
-this is done by higher layers (~EtherLLC or ~EtherEncap).
+this is done by higher layers (\nedtype{EtherLLC} or \nedtype{EtherEncap}).
 
-When a frame is received from the higher layers, it must be an ~EtherFrame,
-and with all protocol fields filled out
+When a frame is received from the higher layers, it must be an
+\msgtype{EtherFrame}, and with all protocol fields filled out
 (including the destination MAC address). The source address, if left empty,
 will be filled in. Then frame is queued and transmitted according
 to the CSMA/CD protocol.
@@ -144,11 +145,17 @@ Data frames received from the network are EtherFrames. They are passed to
 the higher layers without modification.
 Also, the module properly responds to PAUSE frames, but never sends them
 by itself -- however, it transmits PAUSE frames received from upper layers.
-See <a href="ether-pause.html">PAUSE handling</a> for more info.
+See section~\ref{pause_handling} for more info.
 
-For more info see <a href="ether-overview.html">Ethernet Model Overview</a>.
+The \nedtype{IEtherMAC} interface has two implementation: \nedtype{EtherMAC}
+and \nedtype{EtherMACFullDuplex}, both derived from \nedtype{EtherMACBase}.
+\nedtype{EtherMAC} is more general and can transmit frames using the CSMA/CD protocol,
+\nedtype{EtherMACFullDuplex} works only with duplex connections without CSMA/CD.
 
-<b>Disabling and disconnecting</b>
+% TODO document auto MAC address, using host names as destAddress
+Ethernet Auto-Negotiation not supported
+
+\tbf{Disabling and disconnecting}
 
 If the MAC is not connected to the network ("cable unplugged"), it will
 start up in "disabled" mode. A disabled MAC simply discards any messages
@@ -156,7 +163,7 @@ it receives. It is currently not supported to dynamically connect/disconnect
 a MAC.
 
 
-<b>Queueing</b>
+\tbf{Queueing}
 
 In routers, MAC relies on an external queue module (see ~OutputQueue)
 to model finite buffer, implement QoS and/or RED, and requests packets
@@ -169,37 +176,77 @@ one can specify a hard limit in the txQueueLimit parameter -- if this is
 exceeded, the simulation stops with an error.
 
 
-<b>Physical layer messaging</b>
+\tbf{Physical layer messaging}
 
 Please see <a href="physical.html">Messaging on the physical layer</a>.
 
-<b>Statistics</b>
+\tbf{Statistics}
 
 Output vectors:
-- txPkBytes: bytes sent, including Ethernet frame fields (but excluding preamble and SFD)
-- rxPkBytesOK: total bytes received  without collision or CRC error,
+\begin{itemize}
+\item txPkBytes: bytes sent, including Ethernet frame fields (but excluding preamble and SFD)
+\item rxPkBytesOK: total bytes received  without collision or CRC error,
   including Ethernet frame fields (but excluding preamble and SFD)
-- passedUpPkBytes: number of bytes of frames actually passed up to higher layer
-- txPausePkUnits: number of PAUSE frames sent out
-- rxPausePkUnits: number of PAUSE frames received from network
-- rxPkBytesFromHL: number of bytes of frames received from higher layer
-- collision: number of collisions (NOT number of collided frames!) sensed
-- backoff: number of retransmissions
-- droppedPkBytesIfaceDown: number of bytes of frames from higher layer dropped
-- droppedPkBytesBitError: number of bytes of frames dropped because of bit errors
-- droppedPkBytesNotForUs: number of bytes of frames dropped because destination address didn't match
+\item passedUpPkBytes: number of bytes of frames actually passed up to higher layer
+\item txPausePkUnits: number of PAUSE frames sent out
+\item rxPausePkUnits: number of PAUSE frames received from network
+\item rxPkBytesFromHL: number of bytes of frames received from higher layer
+\item collision: number of collisions (NOT number of collided frames!) sensed
+\item backoff: number of retransmissions
+\item droppedPkBytesIfaceDown: number of bytes of frames from higher layer dropped
+\item droppedPkBytesBitError: number of bytes of frames dropped because of bit errors
+\item droppedPkBytesNotForUs: number of bytes of frames dropped because destination address didn't match
+\end{itemize}
 
 Output scalars (written in the finish() function) include the final values of
 the above variables and throughput.
 
-@see ~EtherMACFullDuplex, ~EthernetInterface, ~IOutputQueue, ~EtherEncap, ~EtherLLC
-@see ~EtherFrame, ~EthernetIIFrame, ~EtherFrameWithLLC, ~Ieee802Ctrl
+% FIXME prepareTxFrame padding should be performed before adding PREAMBLE_BYTES+SFD_BYTES
+
+\subsection{EtherMAC}
+
+Ethernet MAC layer. MAC performs transmission and reception of frames.
+See the \nedtype{IEtherMAC} for the Ethernet MAC layer general informations.
+Doesn't do encapsulation/decapsulation; see \nedtype{EtherLLC} and
+\nedtype{EtherEncap} for that.
+
+Supported variations:
+\begin{itemize}
+\item 10Mb Ethernet bus or twisted pair
+\item 100Mb Ethernet duplex or half-duplex
+\item 1Gb Ethernet
+\end{itemize}
+
+Supports all three Ethernet frame types. (It handles \msgtype{EtherFrame} message class;
+specific frame classes (Ethernet-II, IEEE 802.3) are subclassed from that one.)
+RAW mode (only used by the IPX protocol) is not supported.
+
+\tbf{Operation}
+
+Processing of frames received from higher layers:
+\begin{itemize}
+\item if src address in the frame is empty, fill it out
+\item frames get queued up until transmission
+\item transmit according to the CSMA/CD protocol
+\item can send PAUSE message if requested by higher layers (PAUSE protocol,
+  used in switches).
+\end{itemize}
+
+Processing of frames incoming from the network:
+\begin{itemize}
+\item receive according to the CSMA/CD protocol
+\item CRC checking (frames with the error bit set are discarded).
+\item respond to PAUSE frames
+\item in promiscuous mode, pass up all received frames;
+  otherwise, only frames with matching MAC addresses and
+  broadcast frames are passed up.
+\end{itemize}
+
 
 \subsection{EtherMACFullDuplex}
 
-
 Ethernet MAC which supports full duplex operation ONLY.
-See the ~IEtherMAC for general informations.
+See the \nedtype{IEtherMAC} for general informations.
 
 Most of today's Ethernet networks are switched, and operate
 in full duplex mode. Full-duplex transmission can be used for
@@ -210,98 +257,49 @@ there is no need to determine whether the connection is already
 being used. This allows for a much simpler simulation model
 for MAC. (In "traditional" Ethernet simulations, most of the code
 deals with the shared medium and the CSMA/CD mechanism.)
-~EtherMACFullDuplex implements Ethernet without shared medium and CSMA/CD.
-(If you need half-duplex operation, see ~EtherMAC which is for a full-blown
+\nedtype{EtherMACFullDuplex} implements Ethernet without shared medium and CSMA/CD.
+(If you need half-duplex operation, see \nedtype{EtherMAC} which is for a full-blown
 and therefore more complicated Ethernet MAC model.)
 
-~EtherMACFullDuplex performs transmission and reception of frames.
-It does not do encapsulation/decapsulation; see ~EtherLLC and ~EtherEncap
-for that.
+\nedtype{EtherMACFullDuplex} performs transmission and reception of frames.
+It does not do encapsulation/decapsulation; see \nedtype{EtherLLC} and
+\nedtype{EtherEncap} for that.
 
 Supported variations:
-- 10Mb Ethernet (full duplex mode)
-- 100Mb Ethernet (full duplex mode)
-- 1Gb Ethernet (full duplex mode)
+\begin{itemize}
+\item 10Mb Ethernet (full duplex mode)
+\item 100Mb Ethernet (full duplex mode)
+\item 1Gb Ethernet (full duplex mode)
+\end{itemize}
 
-Supports all three Ethernet frame types. (It handles ~EtherFrame message class;
+Supports all three Ethernet frame types. (It handles \msgtype{EtherFrame} message class;
 specific frame classes (Ethernet-II, IEEE 802.3) are subclassed from that one.)
 RAW mode (only used by the IPX protocol) is not supported.
 
-<b>Operation</b>
+\tbf{Operation}
 
 Processing of frames received from higher layers:
-- if src address in the frame is empty, fill it out
-- frames get queued up until transmission
-- transmit according to the CSMA/CD protocol
-- can send PAUSE message if requested by higher layers (PAUSE protocol,
+\begin{itemize}
+\item if src address in the frame is empty, fill it out
+\item frames get queued up until transmission
+\item transmit frames on the physical layer
+\item can send PAUSE message if requested by higher layers (PAUSE protocol,
   used in switches).
+\end{itemize}
 
 Processing of frames incoming from the network:
-- receive according to the CSMA/CD protocol
-- CRC checking (frames with the error bit set are discarded).
-- respond to PAUSE frames
-- in promiscuous mode, pass up all received frames;
+\begin{itemize}
+\item receive frames from physical layer
+\item CRC checking (frames with the error bit set are discarded).
+\item respond to PAUSE frames
+\item in promiscuous mode, pass up all received frames;
   otherwise, only frames with matching MAC addresses and
   broadcast frames are passed up.
+\end{itemize}
 
-The module does not perform encapsulation or decapsulation of frames --
-this is done by higher layers (~EtherLLC or ~EtherEncap).
+% TODO document notifications: NF_PP_TX_BEGIN, NF_PP_TX_END, NF_PP_RX_END
 
-When a frame is received from the higher layers, it must be an ~EtherFrame,
-and with all protocol fields filled out
-(including the destination MAC address). The source address, if left empty,
-will be filled in. Then frame is queued and transmitted according
-to the CSMA/CD protocol.
-
-Data frames received from the network are EtherFrames. They are passed to
-the higher layers without modification.
-Also, the module properly responds to PAUSE frames, but never sends them
-by itself -- however, it transmits PAUSE frames received from upper layers.
-See <a href="ether-pause.html">PAUSE handling</a> for more info.
-
-<b>Disabling and disconnecting</b>
-
-If the MAC is not connected to the network ("cable unplugged"), it will
-start up in "disabled" mode. A disabled MAC simply discards any messages
-it receives. It is currently not supported to dynamically connect/disconnect
-a MAC.
-
-
-<b>Queueing</b>
-
-In routers, MAC relies on an external queue module (see ~IOutputQueue)
-to model finite buffer, implement QoS and/or RED, and requests packets
-from this external queue one-by-one.
-
-In hosts, no such queue is used, so MAC contains an internal
-queue named txQueue to queue up packets waiting for transmission.
-Conceptually, txQueue is of infinite size, but for better diagnostics
-one can specify a hard limit in the txQueueLimit parameter -- if this is
-exceeded, the simulation stops with an error.
-
-
-<b>Physical layer messaging</b>
-
-Please see <a href="physical.html">Messaging on the physical layer</a>.
-
-<b>Statistics</b>
-
-Output vectors:
-- txPkBytes: bytes sent, including Ethernet frame fields (but excluding preamble and SFD)
-- rxPkBytesOK: total bytes received  without collision or CRC error,
-  including Ethernet frame fields (but excluding preamble and SFD)
-- passedUpPkBytes: number of bytes of frames actually passed up to higher layer
-- txPausePkUnits: number of PAUSE frames sent out
-- rxPausePkUnits: number of PAUSE frames received from network
-- rxPkBytesFromHL: number of bytes of frames received from higher layer
-- droppedPkBytesIfaceDown: number of bytes of frames from higher layer dropped
-- droppedPkBytesBitError: number of bytes of frames dropped because of bit errors
-- droppedPkBytesNotForUs: number of bytes of frames dropped because destination address didn't match
-
-Output scalars (written in the finish() function) include the final values of
-the above variables and throughput.
-
-% TODO notifications: NF_PP_TX_BEGIN, NF_PP_TX_END, NF_PP_RX_END
+% FIXME full duplex does not need carrier extension
 
 \subsection{Messaging on the Physical Layer}
 
@@ -324,38 +322,6 @@ Receiving a jam message marks the beginning (and not the end)
 of a jam signal, so actually \nedtype{EtherMAC} has to wait for the duration
 of the jamming before assuming the channel is free again.
 
-\subsection{Autoconfiguration}
-
-In order to facilitate building large models, \nedtype{EtherMAC} and other Ethernet model
-components provide some degree of auto-configuration. Specifically, transmission
-rate and half duplex/full duplex mode can be chosen automatically so that
-connecting Ethernet MACs have matching settings. The purpose is similar to
-Ethernet Auto-Negotiation; however the mechanism is NOT a model of
-Auto-Negotiation (e.g. \nedtype{EtherBus} and \nedtype{EtherHub} also actively participate,
-which obviously does not happen in a real Ethernet.)
-
-What it does:
-
-\begin{itemize}
-  \item the txrate parameters of \nedtype{EtherMAC} represent the highest speed supported
-        by that station, or 0 for full autoconfiguration. Autoconfig will choose
-        the largest common denominator (the speed of the slowest station in the
-        collision domain) for all stations. If all stations are set to auto
-        txrate, 100Mb will be chosen, or 10Mb if there's a bus (\nedtype{EtherBus}) in
-        the collision domain.
-  \item the duplexEnabled parameter of \nedtype{EtherMAC} means whether the station supports
-        duplex operation. However, duplex operation will actually be chosen only
-        if it's a DTE-to-DTE direct connection (there's no shared media like
-        \nedtype{EtherHub} or \nedtype{EtherBus}) and both sides have duplexEnabled=true set.
-\end{itemize}
-
-How it works:
-
-Auto-configuration occurs at the beginning of the simulation, by
-Ethernet model components (\nedtype{EtherMAC}, \nedtype{EtherHub} and \nedtype{EtherBus}) exchanging
-\msgtype{EtherAutoconfig} messages with each other. See description of \msgtype{EtherAutoconfig}
-for more info.
-
 \subsection{MAC and higher layers}
 
 MAC and LLC are implemented as separate modules (\nedtype{EtherMAC} and
@@ -364,6 +330,7 @@ is not always needed. (Switches don't do encapsulation/decapsulation.)
 In switches, \nedtype{EtherMAC} is used with \nedtype{MACRelayUnit}.
 
 \subsection{PAUSE handling}
+\label{pause_handling}
 
 The 802.3x standard supports PAUSE frames as a means of flow
 control. The frame contains a timer value, expressed as a multiple
@@ -384,17 +351,84 @@ and \nedtype{EtherLLC} can be instructed by a command to send a PAUSE frame to M
 \nedtype{MACRelayUnit} types (and thus \nedtype{EtherSwitch}) currently implement a very simple
 scheme for sending PAUSE frames -- this can be refined if the need arises.
 
+% FIXME PAUSE frames should only be sent on full-duplex ethernet.
+%       If a switch uses half-duplex mode to connect to hosts, it can ask sending hosts
+%       to slow down their sending rates:
+%       - force collisions with incoming frames
+%       - make it appear as if the channel is busy
+% FIXME #351 dst address is not set in PAUSE frames -> dropped by receiving MAC (see checkDestinationAddress) ???
+%            dst should be the special multicast address 01-80-C2-00-00-01 or the unicast address of the peer device
+%            the address 01-80-C2-00-00-01 conforms to 802.1D: bridges will not forward frames sent to this address
+% FIXME PAUSE frames should have 0x8808 in the etherType field
+
+\subsection{Visual effects}
+
 
 \section{Switches}
 
-\subsection{MACRelayUnitNP}
+Ethernet switches play an important role in modern Ethernet LANs. Unlike
+passive hubs and repeaters, that work in the physical layer, the switches
+operate in the data link layer and routes data frames between the connected
+subnets.
 
-A IMACRelayUnit implementation which models one or more CPUs
-with shared memory, working from a single shared queue.
+While a hub repeats the data frames on each connected line, possibly causing
+collisions, switches help to segment the network to small collision domains.
+In modern Gigabit LANs each node is connected to the switch direclty
+by full-duplex lines, so no collisions are possible. In this case the
+CSMA/CD is not needed and the channel utilization can be high.
 
-It also models fixed delay for precessing each frame.
-Finite memory is taken into account by dropping frames if
-total number of bits enqueued exceed a given limit.
+\subsection{MAC relay units}
+
+INET framework ethernet switches are built from \nedtype{IMACRelayUnit}
+components. Each relay unit has N input and output gates for sending/receiving
+Ethernet frames. They should be connected to \nedtype{IEtherMAC} modules.
+
+Internally the relay unit holds a table for the destination address -> output
+port mapping. When it receives a data frame it updates the table with the
+source address->input port. The table can also be pre-loaded from a text file
+while initializing the relay unit. The file name given as the \fpar{addressTableFile}
+parameter. Each line of the file contains a hexadecimal MAC address and a decimal port
+number separated by tabs. Comment lines beginning with '\#' are also allowed:
+
+\begin{verbatim}
+01 ff ff ff ff	0
+00-ff-ff-ee-d1	1
+0A:AA:BC:DE:FF	2
+\end{verbatim}
+
+% FIXME #352 addressTableSize is not checked in readAddressTable -> if overflown
+%            then later check updateTableWithAddress has no effect
+% FIXME format is wrong in the comment of readAddressTable()
+
+The size of the lookup table is restricted by the \fpar{addressTableSize} parameter.
+When the table is full, the oldest address is deleted. Entries are also deleted
+if their age exceeds the duration given as the \fpar{agingTime} parameter.
+
+If the destination address is not found in the table, the frame is broadcasted.
+The frame is not sent to the same subnet it was received from, because the
+target already received the original frame. The only exception if the frame
+arrived through a radio channel, in this case the target can be out of range.
+The port range 0..\fpar{numWirelessPorts}-1 are reserved for wireless connections.
+
+The \nedtype{IMACRelayUnit} module is not a concrete implementation,
+it just defines gates and parameters an \nedtype{IMACRelayUnit} should have.
+Concrete inplementations add
+capacity and performance aspects to the model (number of frames processed
+per second, amount of memory available in the switch, etc.)
+C++ implementations can subclass from the class \cppclass{MACRelayUnitBase}.
+
+There are two versions of \nedtype{IMACRelayUnit}:
+
+\begin{description}
+  \item[\nedtype{MACRelayUnitNP}] models one or more CPUs with shared memory,
+    working from a single shared queue.
+  \item[\nedtype{MACRelayUnitPP}] models one CPU assigned to each incoming port,
+    working with shared memory but separate queues.
+\end{description}
+
+In both models input messages are queued. CPUs poll messages from the queue
+and process them in \fpar{processingTime}. If the memory usage exceeds
+\fpar{bufferSize}, the frame will be dropped.
 
 A simple scheme for sending PAUSE frames is built in (although
 users will probably change it). When the buffer level goes
@@ -402,35 +436,36 @@ above a high watermark, PAUSE frames are sent on all ports.
 The watermark and the pause time is configurable; use zero
 values to disable the PAUSE feature.
 
-\subsection{MACRelayUnitPP}
+% FIXME valid values for pauseTime: 0..0xFFFF
+% FIXME ETHER_PAUSE_COMMAND_BYTES should be 4 in Ethernet.h (2bytes opcode + 2bytes pauseTime)
+% FIXME #355 MACRelayUnitNP: pauseInterval calculation assumes 100Mb MAC (or 0.1Mb ???)
+% FIXME PAUSE frame should not be sent on all ports probably
+% TODO add lowWatermark, send PauseFrame(pauseUnits=0) to resume sending
 
-A ~IMACRelayUnit implementation which models one CPU assigned to each
-incoming port, working with shared memory but separate queues.
+The relay units collects the following statistics:
 
-It also models fixed delay for precessing each frame.
-Finite memory is taken into account by dropping frames if
-total number of bits enqueued exceed a given limit.
+\begin{description}
+\item[usedBufferBytes] memory usage as function of time
+\item[processedBytes] count and length of processed frames
+\item[droppedBytes] count and length of frames dropped caused by out of memory
+\end{description}
 
-A simple scheme for sending PAUSE frames is built in (although
-users will probably change it). When the buffer level goes
-above a high watermark, PAUSE frames are sent on all ports.
-The watermark and the pause time is configurable; use zero
-values to disable the PAUSE feature.
+% FIXME MACRelayUnitNP: no signals are generated, how does @statistic work in the ned file?
 
 \subsection{EtherSwitch}
 
-Model of an Ethernet switch.
+Model of an Ethernet switch containing a relay unit and multiple MAC units.
 
 The duplexChannel attributes of the MACs must be set according to the
 medium connected to the port; if collisions are possible (it's a bus or hub)
 it must be set to false, otherwise it can be set to true.
-By default used half duples CSMA/CD mac
+By default it uses half duples MAC with CSMA/CD.
 
-This model does not contain the spanning tree algorithm.
+Spanning tree algorithm (used to prevent loops in the network) is not implemented.
 
 \section{Link Layer Control}
 
-% FIXME there is no module for sending EtherFrameWithSNAP frames
+% FIXME #353 there is no module for sending EtherFrameWithSNAP frames
 % FIXME ETHER_SNAP_HEADER_LENGTH is wrong in Ethernet.h (+3 bytes, ssap+dsap+control)
 
 \subsection{Frame types}
@@ -560,16 +595,21 @@ so the model doesn't have to take care of that.
 The fields of the Ethernet header are passed in a \cppclass{Ieee802Ctrl}
 control structure to the LLC by the network layer.
 
+
 EtherJam, EtherPadding (interframe gap), EtherPauseFrame?
 
 
 \subsection{EtherEncap}
+
+The \nedtype{EtherEncap} module generates \msgtype{EthernetIIFrame} messages.
 
 EtherFrameII
 
 \subsection{EtherLLC}
 
 EtherFrameWithLLC
+
+SAP registration
 
 % TODO delete EtherLLC, because LLC without SNAP is not used with IP (no ARP,IPv6 SAP)
 % TODO modify EtherEncap to handle EtherFrameWithSNAP frames too (we can not send EtherFrameWithSNAP now)

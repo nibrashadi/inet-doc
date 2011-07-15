@@ -68,10 +68,10 @@ also updated, so if the simulation run is animated, the node is
 actually moving on the screen. The current position of the node
 can be obtained from the display string.
 
-The radio simulations has a \nedtype{ChannelAccess} module that takes case of
+The radio simulations has a \nedtype{ChannelControl} module that takes case of
 establishing communication channels between nodes that are within
 communication distance and tearing down the connections when they
-move out of range. The \nedtype{ChannelAccess} module uses to
+move out of range. The \nedtype{ChannelControl} module uses to
 \ttt{mobilityStateChanged} signal to determine when the connection
 status needs to be updated.
 
@@ -211,7 +211,7 @@ configuration: speed, startPos, updateInterval
 \item[TractorMobility] Moves a tractor through a field with a certain
 amount of rows. The following figure illustrates the movement of the
 tractor when the \fpar{rowCount} parameter is 2. The trajectory follows
-the segments in $1,2,3,4,5,6,7,8,1,2,3...$ order. The area is configured
+the segments in $1,2,3,4,5,6,7,8,1,2,3\ldots$ order. The area is configured
 by the \fpar{x1}, \fpar{y1}, \fpar{x2}, \fpar{y2} parameters.
 
 % TODO use constraint area instead of new x1,y1,x2,y2 parameters as in RectangleMobility

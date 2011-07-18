@@ -1,3 +1,4 @@
+% last synchronized to 'dbc28949bf4332ac86d84b95705fbea9af4f84f7'
 \chapter{The Ethernet Model}
 \label{cha:ethernet}
 
@@ -178,7 +179,7 @@ Also, the module properly responds to PAUSE frames, but never sends them
 by itself -- however, it transmits PAUSE frames received from upper layers.
 See section~\ref{subsec:pause_handling} for more info.
 
-\subsection*{Queuing}
+\subsection*{Queueing}
 
 When the transmission line is busy, messages received from the upper layer
 needs to be queued.
@@ -194,27 +195,6 @@ queue named \fvar{txQueue} to queue up packets waiting for transmission.
 Conceptually, \fvar{txQueue} is of infinite size, but for better diagnostics
 one can specify a hard limit in the \fpar{txQueueLimit} parameter -- if this is
 exceeded, the simulation stops with an error.
-
-\subsection*{Jamming}
-
-Messages sent by \nedtype{EtherMAC} mark the beginning of a transmission.
-The end of a transmission is not explicitly represented by a message,
-but instead, the \nedtype{EtherMAC} calculates it from the frame length and
-the transmission rate.
-
-When frames collide, the transmission is aborted -- in this case
-\nedtype{EtherMAC} makes use of the modelled jam signals to figure out
-when colliding transmissions end.
-
-When a transmitting station senses a collision, it transmits a jam signal.
-Jam signals are represented by a \msgtype{EtherJam} message.
-When \nedtype{EtherMAC} received a jam signal, it knows that one transmission
-has ended in jamming -- thus when it receives as many jam messages
-as colliding frames, it can be sure all transmissions have been aborted.
-
-Receiving a jam message marks the beginning (and not the end)
-of a jam signal, so actually \nedtype{EtherMAC} has to wait for the duration
-of the jamming before assuming the channel is free again.
 
 \subsection*{PAUSE handling}
 \label{subsec:pause_handling}
@@ -252,44 +232,31 @@ a MAC.
 CRC checks are modeled by the \fvar{bitError} flag of the packets. Erronous
 packets are dropped by the MAC.
 
-\subsection*{Signals and notifications}
+\subsection*{Signals and statistics}
 
 Both MAC modules emits the following signals:
 \begin{itemize}
-  \item \fsignal{txPkBytesSignal} after successful data frame transmission, the number
-         of bytes sent (without padding and preamble)
-  \item \fsignal{rxPkBytesOkSignal} after successful data frame reception, the number
-         of bytes received (without padding and preable)
-  \item \fsignal{txPausePkUnitsSignal} after PAUSE frame sent, the pause time
-  \item \fsignal{rxPausePkUnitsSignal} after PAUSE frame received, the pause time
-  \item \fsignal{rxPkBytesFromHLSignal} when a data frame received from higher layer,
-         the number of bytes
-  \item \fsignal{dropPkNotForUsSignal} when a data frame received not addressed
+  \item \fsignal{txPk} after successful data frame transmission, the data frame
+  \item \fsignal{rxPkOk} after successful data frame reception, the data frame
+  \item \fsignal{txPausePkUnits} after PAUSE frame sent, the pause time
+  \item \fsignal{rxPausePkUnits} after PAUSE frame received, the pause time
+  \item \fsignal{rxPkFromHL} when a data frame received from higher layer,
+         the data frame
+  \item \fsignal{dropPkNotForUs} when a data frame received not addressed
          to the MAC, the data frame
-  \item \fsignal{dropPkBitErrorSignal} when a frame received with bit error, the frame
-  \item \fsignal{dropPkIfaceDownSignal} when a message received and the MAC is not connected,
+  \item \fsignal{dropPkBitError} when a frame received with bit error, the frame
+  \item \fsignal{dropPkIfaceDown} when a message received and the MAC is not connected,
         the dropped message
-  \item \fsignal{packetSentToLowerSignal} before starting to send a packet on phys\$o gate,
+  \item \fsignal{packetSentToLower} before starting to send a packet on phys\$o gate,
         the packet
-  \item \fsignal{packetReceivedFromLowerSignal} after a packet received on phys\$i gate,
+  \item \fsignal{packetReceivedFromLower} after a packet received on phys\$i gate,
         the packet (excluding PAUSE and JAM messages and dropped data frames)
-  \item \fsignal{packetSentToUpperSignal} before sending a packet on upperLayerOut, the packet
-  \item \fsignal{packetReceivedFromUpperSignal} after a packet received on upperLayerIn,
+  \item \fsignal{packetSentToUpper} before sending a packet on upperLayerOut, the packet
+  \item \fsignal{packetReceivedFromUpper} after a packet received on upperLayerIn,
         the packet
 \end{itemize}
 
-If the node containing the MAC module has a NotificationBoard component,
-notifications are sent about the following events:
-\begin{itemize}
-  \item \verb!NF_PP_TX_BEGIN! transmission of a frame started
-  \item \verb!NF_PP_TX_END! transmission of a frame finished
-  \item \verb!NF_PP_RX_END! a frame received
-\end{itemize}
-
-The payload of the notifications contain the frame itself.
-
-% FIXME EtherMAC does not send notifications
-% FIXME if there is no NotificationBoard in the node -> NULL pointer reference
+% FIXME rxPkOkSignal == packetSentToUpperSignal
 
 Apart from statistics can be generated from the signals, the modules collects
 the following scalars:
@@ -332,6 +299,7 @@ carrier extension and frame bursting. Flow control works as described in section
 \ref{subsec:pause_handling}.
 
 % FIXME remove frameBursting from NED def, or fix it to false
+%       currently setting it to 'true' has no effect
 
 In the \nedtype{EtherMACFullDuplex} module,
 packets arrived at the \ttt{phys\$i} gate are handled when their last bit received.
@@ -361,7 +329,17 @@ extension and frame bursting. Carrier extension can be turned off by setting the
 \fpar{carrierExtension} parameter to \ttt{false}.
 
 Unlike \nedtype{EtherMACFullDuplex}, this MAC module processes the incoming packets when their
-first bit is received. The end of the reception is detected by scheduling a self message.
+first bit is received. The end of the reception is calculated by the MAC and
+detected by scheduling a self message.
+
+When frames collide the transmission is aborted -- in this case the transmitting
+station transmits a jam signal. Jam signals are represented
+by a \msgtype{EtherJam} message. The jam message contains the tree identifier
+of the frame whose transmission is aborted. When the \nedtype{EtherMAC} receives a jam
+signal, it knows that the corresponding transmission ended in jamming and have
+been aborted. Thus when it receives as many jams as collided frames, it can
+be sure that the channel is free again. (Receiving a jam message marks the
+beginning of the jam signal, so actually has to wait for the duration of the jamming.) 
 
 The operation of the MAC module can be schematized by the following state chart:
 
@@ -371,10 +349,10 @@ The operation of the MAC module can be schematized by the following state chart:
 
 The module generates these extra signals:
 \begin{itemize}
-\item \fsignal{collisionSignal} when collision starts (received a frame,
+\item \fsignal{collision} when collision starts (received a frame,
          while transmitting or receiving another one; or start to transmit while receiving a frame),
          the constant value 1
-\item \fsignal{backoffSignal} when jamming period ended and before waiting according to the
+\item \fsignal{backoff} when jamming period ended and before waiting according to the
          exponential backoff algorith, the constant value 1
 \end{itemize}
 

@@ -4,8 +4,355 @@
 
 \section{Overview}
 
-Blah blah blah
+The UDP protocol is a very simple datagram transport protocol, which
+basically makes the services of the network layer available to the applications.
+It performs packet multiplexing and demultiplexing to ports and some basic
+error detection only. 
 
+The frame format as described in RFC768:
+
+\begin{center}
+\begin{bytefield}{32}
+\bitheader{0,7,8,15,16,23,24,31} \\
+\bitbox{16}{Source Port} &
+\bitbox{16}{Destination Port} \\
+\bitbox{16}{Length} &
+\bitbox{16}{Checksum} \\
+\wordbox{3}{Data}
+\end{bytefield}
+\end{center}
+
+The ports represents the communication end points that are allocated by the
+applications that want to send or receive the datagrams. The ``Data'' field
+is the encapsulated application data, the ``Length'' and ``Checksum'' fields
+are computed from the data.
+
+The INET framework contains an \nedtype{UDP} module that performs the encapsulation/decapsulation
+of user packets, an \nedtype{UDPSocket} class that provides the application the usual
+socket interface, and several sample applications. 
+
+These components implement the following statndards:
+\begin{itemize}
+\item RFC768: User Datagram Protocol
+\item RFC1122: Requirements for Internet Hosts -- Communication Layers
+\end{itemize}
+
+\section{The UDP module}
+
+The UDP protocol is implemented by the \nedtype{UDP} simple module. 
+There is a module interface (\nedtype{IUDP}) that defines the gates of the
+\nedtype{UDP} component. In the \nedtype{StandardHost} node, the UDP component
+can be any module implementing that interface.
+
+Each UDP module has gates to connect to the IPv4 and IPv6 network layer
+(ipIn/ipOut and ipv6In/ipv6Out), and a gate array to connect to the applications
+(appIn/appOut). Applications don't have to send messages directly to the UDP module,
+as they can use the \cppclass{UDPSocket} class, which encapsulates the messaging and
+provides a socket like interface to the applications.
+
+The UDP module can be connected to several applications.
+For sending an UDP packet, the application should attach an \cppclass{UDPControlInfo}
+object to the payload, and send it to \nedtype{UDP}. The \cppclass{UDPControlInfo}
+contains both source and destination ip addresses and ports and the id of the interface
+to be used. The \nedtype{UDP} module encapsulates the message into an \msgtype{UDPPacket},
+creates an appropriate IP control info and send it over ipOut or ipv6Out.
+
+Before receiving UDP datagrams applications should first ``bind'' to the given UDP port.
+This can be done by sending a message with message kind UDP\_C\_BIND attached with an
+UDPControlInfo with the following fields filled in:
+\begin{itemize}
+  \item \fvar{sockId} socket identifier, must be unique within the UDP module
+  \item \fvar{userId} user defined identifier; not interpreted by the UDP but copied to the control info
+                      of messages passed to the application
+  \item \fvar{localAddr} local address of the socket, if unspecified all datagrams received
+        by the application, otherwise only datagrams with matching destination address (including broadcasts)
+  \item \fvar{localPort} local port of the socket, if 0, then the UDP module chooses an unused local port
+                         the localAddress/localPort combination must be unique (if localAddr is specified)
+  \item \fvar{interfaceId} if given (not -1), then only those datagrams received that arrived at the specified interface
+  \item \fvar{remoteAddr} if specified, then only datagrams with matching source address are received
+  \item \fvar{remotePort} if specified, then only datagrams with matching source port are received
+\end{itemize}
+
+After bind, the application can set the remote address and port by sending messages with
+UDP\_C\_CONNECT kind. The application can reconnect several times.
+
+The application unbinds the socket by sending a message with UDP\_C\_UNBIND kind.
+
+
+When a packet arrives from the network, first its error bit is checked. Erronous messages
+are dropped by the UDP component. Otherwise the application bound to the destination port
+is looked up, and the decapsulated packet passed to it. If no application is bound to
+the destination port, an ICMP error is sent to the source of the packet.
+
+The \nedtype{UDP} module also processes the received ICMP errors, it sends an error
+notification to the application. The notification is a message with UDP\_I\_ERROR
+kind containing local and remote addresses, interface id and socket id of the undeliverable packet.
+
+The applications are bound to the unspecified local address, then they receive any packets
+targeted to their port. UDP also supports multicast and broadcast addresses; if they
+are used as destination address, all nodes in the multicast group or subnet receives the packet.
+\begin{note}
+The \nedtype{UDP} module supports only local broadcasts (using the special 255.255.255.255 address).
+Packages that are broadcasted to a remote subnet are handled as undeliverable messages.
+\end{note}
+
+The \nedtype{UDP} module collects the following statistics:
+\begin{itemize}
+  \item \fsignal{sentPk} when an UDP packet sent to the ip, the packet
+  \item \fsignal{rcvdPk} when an UDP packet received from the ip, the packet
+  \item \fsignal{passedUpPk} when a packet passed up to the application, the packet
+  \item \fsignal{droppedPkWrongPort} when an undeliverable UDP packet received, the packet
+  \item \fsignal{droppedPkBadChecksum} when an erronous UDP packet received, the packet
+\end{itemize}
+
+%It sould do:
+%
+%  bind(ANY,_) : receive any dst IP, send with default IP (lowest number interface)
+%  bind(IP,PORT): reveive that ip+multicast ip/port
+%  connect(IP,PORT): receive only from that ip/port (multicast is dropped), default send address
+%                            connect can be called several times, disconnect()?
+%                            
+%  Datagrams to broadcast addresses can be only sent or received when the SO_BROADCAST socket flag is set.
+%                            
+%REFS:
+%  http://developerweb.net/viewtopic.php?id=5232
+%  http://linux.about.com/library/cmd/blcmdl2_connect.htm
+%  http://linux.about.com/od/commands/l/blcmdl7_ip.htm
+%  http://linux.about.com/library/cmd/blcmdl7_udp.htm
+%  RFC768
+%  RFC1122
+
+\section{UDP sockets}
+
+UDPSocket is a convenience class, to make it easier to send and receive
+UDP packets from your application models. You'd have one (or more)
+UDPSocket object(s) in your application simple module class, and call
+its member functions (bind(), connect(), sendTo(), etc.) to create and
+configure a socket, and to send datagrams.
+
+UDPSocket chooses and remembers the sockId for you, assembles and sends command
+packets such as UDP\_C\_BIND to UDP, and can also help you deal with packets and
+notification messages arriving from UDP.
+
+Here is a code fragment that creates an UDP socket and sends a 1K packet
+over it (the code can be placed in your handleMessage() or activity()):
+
+\begin{cpp}
+UDPSocket socket;
+socket.connect(IPvXAddress("10.0.0.2"), 2000);
+
+cPacket *pk = new cPacket("dgram");
+pk->setByteLength(1024);
+socket.send(pk);
+
+socket.close();
+\end{cpp}
+
+% FIXME example does not work: UDPSocket::connect expects a bound socket
+% FIXME sendTo does not validate dest address/port
+% FIXME sendTo always sets interfaceId to mcastIfaceId (should be used only for multicast)
+
+% when the localAddr is unspecified by the socket (~ INADDR_ANY), then the kernel sets the
+% source address field of the outgoing packet according to the outgoing interface
+
+Dealing with packets and notification messages coming from UDP is somewhat
+more cumbersome. Basically you have two choices: you either process those
+messages yourself, or let UDPSocket do part of the job. For the latter,
+you give UDPSocket a callback object on which it'll invoke the appropriate
+member functions: socketDatagramArrived() and socketPeerClosed(); these are
+methods of UDPSocket::CallbackInterface. The callback object can be your
+simple module class too.
+
+socketPeerClosed() is invoked when UDP receives an ICMP message which
+refers to a datagram sent from this socket.
+
+This code skeleton example shows how to set up a UDPSocket to use the module
+itself as callback object:
+
+\begin{cpp} 
+class MyModule : public cSimpleModule, public UDPSocket::CallbackInterface
+{
+   UDPSocket socket;
+   virtual void socketDatagramArrived(int sockId, void *yourPtr, cMessage *msg, UDPControlInfo *ctrl);
+   virtual void socketPeerClosed(int sockId, void *yourPtr);
+};
+
+void MyModule::initialize() {
+   socket.setCallbackObject(this,NULL);
+   socket.bind(5555);
+}
+
+void MyModule::handleMessage(cMessage *msg) {
+   if (socket.belongsToSocket(msg))
+      socket.processMessage(msg);
+   else
+      ...
+}
+
+void MyModule::socketDatagramArrived(int, void *, cMessage *msg, UDPControlInfo *ctrl) {
+    EV << "Received UDP packet, " << msg->getByteLength() << " bytes\\n";
+    delete msg;
+}
+ 
+void MyModule::socketPeerClosed(int, void *) {
+    ev << "Received ICMP error, socket peer closed?\\n";
+}
+\end{cpp}
+
+% TODO model setsokopt(IP_ADD_MEMBERSHIP/IP_DROP_MEMBERSHIP) to model participation in a multicast group
+
+If you need to manage a large number of sockets, the UDPSocketMap
+class may be useful.
+
+\section{UDP applications}
+
+All UDP applications should be derived from the \nedtype{IUDPApp} module interface,
+so that the application of \nedtype{StandardHost} could be configured without changing its NED file.
+
+The following applications are implemented in INET:
+\begin{itemize}
+\item \nedtype{UDPBasicApp} sends UDP packets to a given IP address at a given interval
+\item \nedtype{UDPBasicBurst} sends UDP packets to the given IP address(es) in bursts, or acts as a packet sink.
+\item \nedtype{UDPEchoApp} similar to \nedtype{UDPBasicApp}, but it sends back the packet after reception
+\item \nedtype{UDPSink} consumes and prints packets received from the \nedtype{UDP} module
+\item \nedtype{UDPVideoStreamCli},\nedtype{UDPVideoStreamSvr} simulates UDP streaming
+\end{itemize}
+
+The next sections describe these applications in details.
+
+\subsection{UDPBasicApp}
+
+The \nedtype{UDPBasicApp} sends UDP packets to a the IP addresses given in the
+\fpar{destAddresses} parameter. The application sends a message to one of the
+targets in each \fpar{sendInterval} interval. The interval between message and
+the message length can be given as a random variable. Before the packet is
+sent, it is emitted in the \fsignal{sentPk} signal.
+
+The application simply prints the received UDP datagrams. The \fsignal{rcvdPk}
+signal can be used to detect the received packets.
+
+The number of sent and received messages are saved as scalars at the end of the
+simulation.
+
+\subsection{UDPSink}
+
+Similar to \nedtype{UDPBasicApp}, but does not send packets.
+
+\subsection{UDPEchoApp}
+
+Similar to \nedtype{UDPBasicApp}, but it sends back the packet after reception.
+It accepts only packets with \msgtype{UDPEchoAppMsg} type, i.e. packets that
+are generated by another \nedtype{UDPEchoApp}.
+
+When an echo response received, it emits an \fsignal{roundTripTime} signal.
+
+\subsection{UDPVideoStreamCli}
+
+This module is a video streaming client. It send one ``video streaming request'' to
+the server at time \fpar{startTime} and receives stream from \nedtype{UDPVideoStreamSvr}.
+
+The received packets are emitted by the \fsignal{rcvdPk} signal.
+
+\subsection{UDPVideoStreamSvr}
+
+This is the video stream server to be used with \nedtype{UDPVideoStreamCli}.
+
+The server will wait for incoming "video streaming requests".
+When a request arrives, it draws a random video stream size
+using the \fpar{videoSize} parameter, and starts streaming to the client.
+During streaming, it will send UDP packets of size \fpar{packetLen} at every
+\fpar{sendInterval}, until \fpar{videoSize} is reached. The parameters \fpar{packetLen}
+and \fpar{sendInterval} can be set to constant values to create CBR traffic,
+or to random values (e.g. sendInterval=uniform(1e-6, 1.01e-6)) to
+accomodate jitter.
+
+The server can serve several clients, and several streams per client.
+
+% FIXME why streamVector? VideoStreamData could be deleted immediately after last byte sent
+
+\subsection{UDPBasicBurst}
+
+Sends UDP packets to the given IP address(es) in bursts, or acts as a
+packet sink. Compatible with both IPv4 and IPv6.
+
+\subsubsection*{Addressing}
+
+The \fpar{destAddresses} parameter can contain zero, one or more destination
+addresses, separated by spaces. If there is no destination address given,
+the module will act as packet sink. If there are more than one addresses,
+one of them is randomly chosen, either for the whole simulation run,
+or for each burst, or for each packet, depending on the value of the
+\fpar{chooseDestAddrMode} parameter. The \fpar{destAddrRNG} parameter controls which
+(local) RNG is used for randomized address selection.
+The own addresses will be ignored.
+ 
+An address may be given in the dotted decimal notation, or with the module 
+name. (The \cppclass{IPvXAddressResolver} class is used to resolve the address.)
+You can use the "Broadcast" string as address for sending broadcast messages.
+
+INET also defines several NED functions that can be useful: 
+\begin{itemize}
+\item[-] moduleListByPath("pattern",...): \\
+         Returns a space-separated list of the modulenames.
+         All modules whole getFullPath() matches one of the pattern parameters will get included.
+         The patterns may contain wilcards in the same syntax as in ini files.
+         See cTopology::extractByModulePath() function
+         example: destaddresses = moduleListByPath("**.host[*]", "**.fixhost[*]")
+\item[-] moduleListByNedType("fully.qualified.ned.type",...): \\ 
+         Returns a space-separated list of the modulenames with the given NED type(s).
+         All modules whose getNedTypeName() is listed in the given parameters will get included.
+         The NED type name is fully qualified.
+         See cTopology::extractByNedTypeName() function
+         example: destaddresses = moduleListByNedType("inet.nodes.inet.StandardHost")
+\end{itemize}
+
+The peer can be UDPSink or another UDPBasicBurst.
+
+\subsubsection*{Bursts}
+
+The first burst starts at \fpar{startTime}. Bursts start by immediately sending 
+a packet; subsequent packets are sent at \fpar{sendInterval} intervals. The 
+sendInterval parameter can be a random value, e.g. exponential(10ms).
+A constant interval with jitter can be specified as 1s+uniform(-0.01s,0.01s)
+or uniform(0.99s,1.01s). The length of the burst is controlled by the
+\fpar{burstDuration} parameter. (Note that if \fpar{sendInterval} is greater than 
+\fpar{burstDuration}, the burst will consist of one packet only.) The time between
+burst is the \fpar{sleepDuration} parameter; this can be zero (zero is not
+allowed for \fpar{sendInterval}.) The zero \fpar{burstDuration} is interpreted as infinity.
+
+\subsubsection*{Packets}
+
+Packet length is controlled by the \fpar{messageLength} parameter.
+
+The module adds two parameters to packets before sending:
+\begin{itemize}
+\item[-] sourceID: source module ID
+\item[-] msgId: incremented by 1 after send any packet.
+\end{itemize}
+When received packet has this parameters, the module checks the order of received packets.
+
+\subsubsection*{Operation as sink}
+
+When \fpar{destAddresses} parameter is empty, the module receives packets and makes statistics only.
+
+\subsubsection*{Statistics}
+
+Statistics are collected on outgoing packets:
+\begin{itemize}
+\item[-] sentPk: packet object
+\end{itemize}
+
+Statistics are collected on incoming packets:
+\begin{itemize}
+\item[-] outOfOrderPk: statistics of out of order packets.
+       The packet is out of order, when has msgId and sourceId parameters and module
+       received bigger msgId from same sourceID.
+\item[-] dropPk: statistics of dropped packets. 
+       The packet is dropped when not out-of-order packet and delay time is larger than
+       delayLimit parameter. The delayLimit=0 is infinity.
+\item[-] rcvdPk: statistics of not dropped, not out-of-order packets.
+\item[-] endToEndDelay: end to end delay statistics of not dropped, not out-of-order packets.
+\end{itemize}
 
 %%% Local Variables:
 %%% mode: latex

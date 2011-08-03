@@ -46,103 +46,126 @@ can be any module implementing that interface.
 
 Each UDP module has gates to connect to the IPv4 and IPv6 network layer
 (ipIn/ipOut and ipv6In/ipv6Out), and a gate array to connect to the applications
-(appIn/appOut). Applications don't have to send messages directly to the UDP module,
-as they can use the \cppclass{UDPSocket} class, which encapsulates the messaging and
-provides a socket like interface to the applications.
+(appIn/appOut).
 
-\subsection{UDP commands}
+The UDP module can be connected to several applications, and each application
+can use several sockets to send and receive UDP datagrams.
+The state of the sockets are stored within the UDP module and the application
+can configure the socket by sending command messages to the UDP module.
+These command messages are distinguished by their kind and the type of their
+control info. The control info identifies the socket and holds the parameters
+of the command.
 
-The UDP module can be connected to several applications, it maintains the state
-of each socket. This state can be changed by sending control messages to the UDP.
-There are four message kinds to be used with control messages (UDP\_C\_BIND, UDP\_C\_CONNECT,
-UDP\_C\_SETOPTION and UDP\_C\_CLOSE), and each has associated control info types that
-holds the parameters of the command:
-\begin{itemize}
-  \item \cppclass{UDPBindCommand} bind(socketId, localAddr, localPort) binds the socket to
-        a local address/port
-  \item \cppclass{UDPConnectCommand} connect(socetId, remoteAddr, remotePort) connects a
-        socket to a remote address/port
-  \item \cppclass{UDPSendCommand} send(socketId, destAddr, destPort) send data over a socket;
-        destAddr and destPort can be unspecified if the socket is connected to the destination
-  \item \cppclass{UDPCloseCommand} close(socketId) closes the socket
-  \item \cppclass{UDPSetTimeToLiveCommand} setTimeToLive(socketId, ttl)
-  \item \cppclass{UDPSetBroadcastCommand} setBroadCast(socketId, broadcast)
-  \item \cppclass{UDPSetMulticastInterfaceCommand} setMulticastInterface(socketId, interfaceId)
-  \item \cppclass{UDPJoinMulticastGroupCommand} joinMulticastGroupCommand(socketId, multicastAddr, interfaceId)
-  \item \cppclass{UDPLeaveMulticastGroupCommand} leaveMulticastGroup(socketId, multicastAddr)
-\end{itemize}
+Applications don't have to send messages directly to the UDP module,
+as they can use the \cppclass{UDPSocket} utility class, which encapsulates the messaging and
+provides a socket like interface to applications.
 
 \subsection{Sending UDP datagrams}
 
+If the application want to send datagrams, it optionally can connect to the destination.
+It does this be sending a message with UDP\_C\_CONNECT kind and \cppclass{UDPConnectCommand}
+control info containing the remote address and port of the connection.
+The UDP protocol is in fact connectionless, so it does not send any packets as a result
+of the connect call. When the UDP module receives the connect request,
+it simply remembers the destination address and port and use it as default destination
+for later sends. The application can send several connect commands to the same socket.
+
+% FIXME currently connect() or bind() is mandatory as the first command,
+%       the application cannot send packets or set options otherwise
+
+% FIXME connect() should allow unspecified dest address and -1 port (interpreted as disconnect())
+
 For sending an UDP packet, the application should attach an \cppclass{UDPSendCommand}
-object to the payload, and send it to \nedtype{UDP}. The \cppclass{UDPSendCommand}
-contains the destination ip address and port. The destination address and port
-can be unspecified in the control info if the socket is connected
-to the destination. It is done be sending an UDP\_C\_CONNECT command to the \nedtype{UDP}
-module. The connect() command can be issued several
-times before closing the socket.
-The \nedtype{UDP} module encapsulates the message into an \msgtype{UDPPacket},
-creates an appropriate IP control info and send it over ipOut or ipv6Out.
+control info to the packet, and send it to \nedtype{UDP}. The control info may contain
+the destination address and port. If the destination address or port
+is unspecified in the control info then the packet is sent to the connected target.
 
-\subsection{Receiving UDP datagrams}
+The \nedtype{UDP} module encapsulates the application's packet into an \msgtype{UDPPacket},
+creates an appropriate IP control info and send it over ipOut or ipv6Out depending on
+the destination address.
 
-Before receiving UDP datagrams applications should first ``bind'' to the given UDP port.
-This can be done by sending a message with message kind UDP\_C\_BIND attached with an
-\cppclass{UDPBindCommand} control info with the following fields filled in:
-\begin{itemize}
-  \item \fvar{sockId} socket identifier, must be unique within the UDP module
-  \item \fvar{localAddr} local address of the socket, if unspecified all datagrams received
-        by the application, otherwise only datagrams with matching destination address,
-        and multicast and broadcast messages if enabled (see below)
-  \item \fvar{localPort} local port of the socket, if -1, then the UDP module chooses an unused local port
-                         the localAddress/localPort combination must be unique (if localAddr is specified)
-\end{itemize}
+The destination address can be the IPv4 local broadcast address (255.255.255.255)
+or a multicast address. Before sending broadcast messages, the socket must be configured
+for broadcasting. This is done by sending an message to the UDP module. The message
+kind is UDP\_C\_SETOPTION and its control info (an \cppclass{UDPSetBroadcastCommand})
+tells if the broadcast is enabled. You can limit the multicast to the local network
+by setting the TTL of the IP packets to 1. The TTL can be configured per socket,
+by sending a message to the UDP with an \cppclass{UDPSetTimeToLive} control info
+containing the value. If the node has multiple interfaces, the application can
+choose which is used for multicast messages. This is also a socket option, the
+id of the interface (as registered in the interface table) can be given in an
+\cppclass{UDPSetMulticastInterfaceCommand} control info.
 
-The application unbinds the socket by sending a message with UDP\_C\_CLOSE kind.
+% FIXME currently sending broadcast messages is enabled without setting SO_BROADCAST to true,
+%       this is not so in UNIX
 
-When a packet arrives from the network, first its error bit is checked. Erronous messages
-are dropped by the UDP component. Otherwise the application bound to the destination port
-is looked up, and the decapsulated packet passed to it. If no application is bound to
-the destination port, an ICMP error is sent to the source of the packet. If the socket
-is connected it can only receive packets from its remote partner.
+% FIXME there should be a separate TTL for multicast (not used for unicast), default value is 1
+%       see IP_MULTICAST_TTL in `man 7 ip`
 
-The control info of the decapsulated packet contains information about
-the source and destination address/port the TTL field of the packet
-and the interfaceId on which the packet was received.
-
-The \nedtype{UDP} module also processes the received ICMP errors, it sends an error
-notification to the application. The notification is a message with UDP\_I\_ERROR
-kind and with attached control info with \cppclass{UDPErrorIndication}.
-The control info contains the source and destination address and ports of the undeliverable
-message.
-
-The applications are bound to the unspecified local address, then they receive any packets
-targeted to their port. UDP also supports multicast and broadcast addresses; if they
-are used as destination address, all nodes in the multicast group or subnet receives the packet.
-The socket receives the broadcast packets if it was enabled and unconnected or connected to the
-sender. The socket receives the multicast packets if its joined to the multicast group addressed
-by destination of the packet and it is unconnected or connected to the sender.
 \begin{note}
 The \nedtype{UDP} module supports only local broadcasts (using the special 255.255.255.255 address).
 Packages that are broadcasted to a remote subnet are handled as undeliverable messages.
 \end{note}
 
+If the UDP packet cannot be delivered because nobody listens on the destination port,
+the application will receive a notification about the failure. The notification is 
+a message with UDP\_I\_ERROR kind having attached an \cppclass{UDPErrorIndication}
+control info. The control info contains the local and destination address/port,
+but not the original packet.
+
+After the application finished using a socket, it should close it by sending a message
+UDP\_C\_CLOSE kind and \cppclass{UDPCloseCommand} control info. The control info
+contains only the socket identifier. This command frees the resources associated
+with the given socket, for example its socket identifier or bound address/port.
+
+\subsection{Receiving UDP datagrams}
+
+Before receiving UDP datagrams applications should first ``bind'' to the given UDP port.
+This can be done by sending a message with message kind UDP\_C\_BIND attached with an
+\cppclass{UDPBindCommand} control info. The control info contains the socket identifier
+and the local address and port the application want to receive UDP packets.
+Both the address and port is optional. If the address is unspecified, than the UDP
+packets with any destination address is passed to the application. If the port is
+-1, then an unused port is selected automatically by the UDP module.
+The localAddress/localPort combination must be unique.
+
+When a packet arrives from the network, first its error bit is checked. Erronous messages
+are dropped by the UDP component. Otherwise the application bound to the destination port
+is looked up, and the decapsulated packet passed to it. If no application is bound to
+the destination port, an ICMP error is sent to the source of the packet. If the socket is
+connected, then only those packets are delivered to the application, that received from
+the connected remote address and port.
+
+The control info of the decapsulated packet is an \cppclass{UDPDataIndication}
+and contains information about the source and destination address/port, the TTL,
+and the identifier of the interface card on which the packet was received.
+
+The applications are bound to the unspecified local address, then they receive any packets
+targeted to their port. UDP also supports multicast and broadcast addresses; if they
+are used as destination address, all nodes in the multicast group or subnet receives the packet.
+The socket receives the broadcast packets only if it is configured for broadcast.
+To receive multicast messages, the socket must join to the group of the multicast address.
+This is done be sending the UDP module an UDP\_C\_SETOPTION message with
+\cppclass{UDPJoinMulticastGroupCommand} control info. The control info specifies the 
+multicast address and the interface identifier. If the interface identifier is given
+only those multicast packets are received that arrived at that interface.
+The socket can stop receiving multicast messages if it leaves the multicast group.
+For this purpose the application should send the UDP another UDP\_C\_SETOPTION
+message in their control info (\cppclass{UDPLeaveMulticastGroupCommand}) specifying
+the multicast address of that group.
+
+% TODO clarify: multicast packets should not be delivered to connected sockets?
+
 \subsection{Signals}
 
 The \nedtype{UDP} module emits the following signals:
 \begin{itemize}
-  \item \fsignal{sentPk} when an UDP packet sent to the ip, the packet
-  \item \fsignal{rcvdPk} when an UDP packet received from the ip, the packet
+  \item \fsignal{sentPk} when an UDP packet sent to the IP, the packet
+  \item \fsignal{rcvdPk} when an UDP packet received from the IP, the packet
   \item \fsignal{passedUpPk} when a packet passed up to the application, the packet
   \item \fsignal{droppedPkWrongPort} when an undeliverable UDP packet received, the packet
   \item \fsignal{droppedPkBadChecksum} when an erronous UDP packet received, the packet
 \end{itemize}
-
-% FIXME connect() or bind() should not be mandatory before sending packets or setting options
-% FIXME connect() should allow unspecified dest address and -1 port (interpreted as disconnect())
-% FIXME sending broadcast messages should be disallowed if SO_BROADCAST is false
-% FIXME there should be a separate TTL for multicast (not used for unicast), default value is 1
-% TODO clarify: multicast packets should not be delivered to connected sockets?
 
 \section{UDP sockets}
 
@@ -161,6 +184,7 @@ over it (the code can be placed in your handleMessage() or activity()):
 
 \begin{cpp}
 UDPSocket socket;
+socket.setOutputGate(gate("udpOut"));
 socket.connect(IPvXAddress("10.0.0.2"), 2000);
 
 cPacket *pk = new cPacket("dgram");
@@ -179,6 +203,25 @@ by checking the message kind (should be either UDP\_I\_DATA or UDP\_I\_ERROR),
 and casting the control info to UDPDataIndication or UDPErrorIndication.
 USPSocket provides some help for this with the \ffunc{belongsToSocket()} and
 \ffunc{belongsToAnyUDPSocket()} methods.
+
+\begin{cpp}
+void MyApp::handleMessage(cMessage *msg)
+{
+    if (msg->getKind() == UDP_I_DATA)
+    {
+        if (socket.belongsToSocket())
+            processUDPPacket(PK(msg));
+    }
+    else if (msg->getKind() == UDP_I_ERROR)
+    {
+        processUDPError(msg);
+    }
+    else
+    {
+        error("Unrecognized message (%s)", msg->getClassName());
+    }
+}
+\end{cpp}
 
 \section{UDP applications}
 
@@ -210,9 +253,14 @@ signal can be used to detect the received packets.
 The number of sent and received messages are saved as scalars at the end of the
 simulation.
 
+% could be a simple packet generator without the ability to receive packets?
+
 \subsection{UDPSink}
 
-Similar to \nedtype{UDPBasicApp}, but does not send packets.
+This module binds an UDP socket to a given local port, and prints the
+source and destination and the length of each received packet.
+
+% TODO does not accept broadcast messages
 
 \subsection{UDPEchoApp}
 
@@ -245,6 +293,7 @@ accomodate jitter.
 The server can serve several clients, and several streams per client.
 
 % FIXME why streamVector? VideoStreamData could be deleted immediately after last byte sent
+% TODO this is video-on-demand, support multicast/broadcast video streaming too
 
 \subsection{UDPBasicBurst}
 

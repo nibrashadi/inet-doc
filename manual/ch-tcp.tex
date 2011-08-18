@@ -6,109 +6,773 @@
 
 Blah blah blah
 
-A TCP segment is represented by the class \msgtype{TCPSegment}.
+\subsection{TCP segments}
 
-\subsection{Communication with clients}
+The TCP segment as described in RFC793:
 
-For communication between client applications and the \nedtype{TCP} module,
-the \cppclass{TcpCommandCode} and \cppclass{TcpStatusInd} enums are used as message kinds,
-and \cppclass{TCPCommand} and its subclasses are used as control info.
+\begin{center}
+\begin{bytefield}{32}
+\bitheader{0,3,4,7,8,15,16,31} \\
+\bitbox{16}{Source Port} &
+\bitbox{16}{Destination Port} \\
+\bitbox{32}{Sequence Number} \\
+\bitbox{32}{Acknowledgment Number} \\
+\bitbox{4}{\small Data Offset} &
+\bitbox{6}{Reserved} &
+\bitbox{6}{Flags} &
+\bitbox{16}{Window} \\
+\bitbox{16}{Checksum} &
+\bitbox{16}{Urgent Pointer} \\
+\bitbox{24}{Options} &
+\bitbox{8}{Padding} \\
+\wordbox{3}{Data}
+\end{bytefield}
+\end{center}
 
-To open a connection from a client app, send a \cppclass{cMessage} to \nedtype{TCP} with
-\ttt{TCP\_C\_OPEN\_ACTIVE} as message kind and a \cppclass{TCPOpenCommand} object filled in
-and attached to it as control info. (The peer \nedtype{TCP} will have to be LISTENing;
-the server app can achieve this with a similar \cppclass{cMessage} but \ttt{TCP\_C\_OPEN\_PASSIVE}
-message kind.) With passive open, there is a possibility to cause the connection
-"fork" on an incoming connection, leaving the original connection LISTENing
-on the port (see the \ttt{fork} field in \cppclass{TCPOpenCommand}).
+Here
+\begin{itemize}
+  \item the Source and Destination Ports, together with the Source and Destination
+  addresses of the IP header identifies the communication endpoints.
+  \item the Sequence Number identifier of the first data byte transmitted in the sequence,
+  Sequence Number + 1 identifies the second byte, so on.
+  \item the Acknowlegment Number refers to the next byte (if the ACK flag is set) expected
+  by the receiver using its sequence number
+  \item the Data Offset is the length of the TCP header in 32-bit words (needed because the
+  Options field has variable length)
+  \item the Reserved bits are unused
+  \item the Flags field composed of 6 bits:
+  \begin{itemize}
+    \item URG: Urgent Pointer field is significant
+    \item ACK: Acknowledgment field is significant
+    \item PSH: Push Function
+    \item RST: Reset the connection
+    \item SYN: Synchronize sequence number
+    \item FIN: No more data from sender
+  \end{itemize}
+  \item the Window is the number of bytes the receiver TCP can accept (because of its
+  limited buffer)
+  \item the Checksum is the 1-complement sum of the 16-bit words of the IP/TCP header and
+  data bytes
+  \item the Urgent Pointer is the offset of the urgent data (if URG flag is set)
+  \item the Options field is variable length, it can occupy 0-40 bytes in the header and is
+  always padded to a multiple of 4 bytes.
+\end{itemize}
 
-The client app can send data by assigning the \ttt{TCP\_C\_SEND} message kind
-and attaching a \cppclass{TCPSendCommand} control info object to the data packet,
-and sending it to \nedtype{TCP}. The server app will receive data as messages
-with the \ttt{TCP\_I\_DATA} message kind and \cppclass{TCPSendCommand} control info.
-(Whether you will receive the same or identical messages, or even whether
-you will receive data in the same sized chunks as sent depends on the
-\ttt{sendQueueClass} and \ttt{receiveQueueClass} used, see below. With
-\cppclass{TCPVirtualDataSendQueue} and \cppclass{TCPVirtualDataRcvQueue} set, message objects
-and even message boundaries are not preserved.)
+\subsection{TCP connections}
 
-To close, the client sends a \cppclass{cMessage} to \nedtype{TCP} with the \ttt{TCP\_C\_CLOSE} message kind
-and \cppclass{TCPCommand} control info.
+establishment/release
 
-\nedtype{TCP} sends notifications to the application whenever there is a significant
-change in the state of the connection: established, remote TCP closed,
-closed, timed out, connection refused, connection reset, etc. These
-notifications are also cMessages with message kind \ttt{TCP\_I\_xxx}
-(\ttt{TCP\_I\_ESTABLISHED}, etc.) and \cppclass{TCPCommand} as control info.
+state diagram
 
+\subsection{Flow control}
+
+window update
+
+window scale option (RFC1323)
+
+persistence timer: recover after window update segment lost (and current window is 0)
+
+keepalive timer
+
+\subsection{Transmission policies}
+
+\subsubsection*{Retransmissions}
+
+retransmission timer
+
+computing RTT mean and mean deviation (D)
+
+Jacobson's formula: timeout = RTT + 4 * D
+
+Karn's modification: do not update RTT on any segments that have been retransmitted
+                     the timeout is doubled on each failure until the segment gets through
+
+\subsubsection*{Delayed ACK algorithm}
+
+RFC1122 4.2.3.2
+
+A host that is receiving a stream of TCP data segments can
+increase efficiency in both the Internet and the hosts by
+sending fewer than one ACK (acknowledgment) segment per data
+segment received; this is known as a "delayed ACK" [TCP:5].
+
+Delay is max. 500ms.
+
+A delayed ACK gives the application an opportunity to
+update the window and perhaps to send an immediate
+response.  In particular, in the case of character-mode
+remote login, a delayed ACK can reduce the number of
+segments sent by the server by a factor of 3 (ACK,
+window update, and echo character all combined in one
+segment).
+
+In addition, on some large multi-user hosts, a delayed
+ACK can substantially reduce protocol processing
+overhead by reducing the total number of packets to be
+processed [TCP:5].  However, excessive delays on ACK's
+can disturb the round-trip timing and packet "clocking"
+algorithms [TCP:7].
+
+RFC2581 3.2
+
+a TCP receiver SHOULD send an immediate ACK
+when the incoming segment fills in all or part of a gap in the
+sequence space.
+
+\subsubsection*{Nagle's algorithm}
+
+RFC896 describes the ``small packet problem": when the application
+sends single-byte messages to the TCP, and it transmitted immediatly
+in a 41 byte TCP/IP packet (20 bytes IP header, 20 bytes TCP header,
+1 byte payload), the result is a 4000\% overhead that can cause
+congestion in the network.
+
+The solution to this problem is to delay the transmission until
+enough data received from the application and send all collected
+data in one packet. Nagle proposed that
+when a TCP connection has outstanding data that has not
+yet been acknowledged, small segments should not be sent
+until the outstanding data is acknowledged.
+
+In the \nedtype{TCP} module this behaviour can be enabled
+by setting the \fpar{nagleEnabled} parameter to true.
+
+\subsubsection*{Selective Acknowledgments}
+
+RFC2018
+
+RFC2883
+
+\subsubsection*{Silly window avoidance}
+
+The Silly Window Syndrome (SWS) is described in RFC813. It occurs when
+a TCP receiver advertises a small window and the TCP sender immediately
+sends data to fill the window. Let's take the example when the sender
+process writes a file into the TCP stream in big chunks, while the
+receiver process reads the bytes one by one. The first few bytes
+are transmitted as whole segments until the receiver buffer
+becomes full. Then the application reads one
+byte, and a window size 1 is offered to the sender. The sender sends
+a segment with 1 byte payload immediately, the receiver buffer becomes
+full, and after reading 1 byte, the offered window is 1 byte again.
+Thus almost the whole file is transmitted in very small segments.
+
+In order to avoid SWS, both sender and receiver must try to avoid this
+situation. The receiver must not advertise small windows and the sender
+must not send small segments when only a small window is advertised.
+
+In RFC813 it is offered that
+\begin{enumerate}
+  \item the receiver should not advertise windows that is smaller than the maximum
+        segment size of the connection
+  \item the sender should wait until the window is large enough for a maximum sized
+        segment. 
+\end{enumerate}
+
+\subsection{Congestion control}
+
+describe congestion
+
+congestion window: sender-side limit on the amount of data the sender can transmit
+                   into the network before receiving an ACK
+
+slow start: initial congestion window is MSS, double on each successful transmission.
+When treshold reached increment only by 1 MSS.
+
+
+RFC2581
+
+Definitions:
+SMSS: sender maximum segment size
+RMSS: receiver maximum segment size (default 536)
+rwnd: most recently advertised receiver window
+IW: initial sender's congestion window
+LW: loss window, size of congestion window after a TCP sender detects loss
+RW: restart window, size of congestion window after a TCP restarts transmission after an idle period
+fligth size: amount of data has been sent but not yet acknowledged
+cwnd: congestion window, sender-size limit on the amount of data the sender
+      can transmit into the network before receiving an ACK
+rwnd: receiver advertised window, receiver-side limit on the amount of outstanding data
+sstresh: whether slow start or congestion avoidance used
+
+IW <= 2*MSS
+
+
+\subsubsection*{Slow Start and Congestion Avoidance}
+
+slow start: cwnd < ssthresh, congestion avoidance: cwnd > ssthresh
+
+Initial window (IW) is at most 2 MSS bytes, no more than 2 segments. 
+
+During slow start the cwnd is increased by at most 1 SMSS bytes for each ACK received.
+
+During congestion avoidance, cwnd is incremented by 1 full-sized segment
+per round-trip-time (RTT). One formula commonly used to update cwnd during
+congestion is $ cwnd += SMSS*SMSS/cwnd $. This adjustment is executed on every
+incoming non-duplicate ACK. (0 rounded up to 1)
+
+When a TCP sender detects segment loss using the retransmission timer,
+the value of sthresh is set to no more than $ max(FlightSize/2, 2*SMSS) $.
+(Flight size is the amount of data has been sent but not yet acknowledged.)
+At the same time, cwnd is set to LW (the loss window, no more than 1MSS).
+
+\subsubsection*{Fast Retransmit and Fast Recovery}
+
+send a duplicate ACK immedatly when out-of-order segment received
+
+send immediate ACK when the segment fills in a gap in the segment space
+
+the sender retransmit the segments immediately when 3 duplicated ACK received
+
+Fast recovery: no slow start after loss detected as fast retransmit
+
+   1.  When the third duplicate ACK is received, set ssthresh to no more
+       than the value given in equation 3.
+
+   2.  Retransmit the lost segment and set cwnd to ssthresh plus 3*SMSS.
+       This artificially "inflates" the congestion window by the number
+       of segments (three) that have left the network and which the
+       receiver has buffered.
+
+   3.  For each additional duplicate ACK received, increment cwnd by
+       SMSS.  This artificially inflates the congestion window in order
+       to reflect the additional segment that has left the network.
+
+   4.  Transmit a segment, if allowed by the new value of cwnd and the
+       receiver's advertised window.
+
+   5.  When the next ACK arrives that acknowledges new data, set cwnd to
+       ssthresh (the value set in step 1).  This is termed "deflating"
+       the window.
+
+       This ACK should be the acknowledgment elicited by the
+       retransmission from step 1, one RTT after the retransmission
+       (though it may arrive sooner in the presence of significant out-
+       of-order delivery of data segments at the receiver).
+       Additionally, this ACK should acknowledge all the intermediate
+       segments sent between the lost segment and the receipt of the
+       third duplicate ACK, if none of these were lost.
+
+\subsection{Implemented standards}
+
+This implementation supports:
+\begin{itemize}
+\item RFC 793 - Transmission Control Protocol
+\item RFC 896 - Congestion Control in IP/TCP Internetworks
+\item RFC 1122 - Requirements for Internet Hosts -- Communication Layers
+\item RFC 1323 - TCP Extensions for High Performance
+\item RFC 2018 - TCP Selective Acknowledgment Options
+\item RFC 2581 - TCP Congestion Control
+\item RFC 2883 - An Extension to the Selective Acknowledgement (SACK) Option for TCP
+\item RFC 3042 - Enhancing TCP's Loss Recovery Using Limited Transmit
+\item RFC 3390 - Increasing TCP's Initial Window
+\item RFC 3517 - A Conservative Selective Acknowledgment (SACK)-based Loss Recovery
+                 Algorithm for TCP
+\item RFC 3782 - The NewReno Modification to TCP's Fast Recovery Algorithm
+\end{itemize}
+
+
+\section{TCP module}
+
+The \nedtype{TCP} simple module is the main implementation of the TCP protocol in the INET framework.
+Other implementation are described in section \ref{sec:other_tcp}.
+The \nedtype{TCP} module as other transport protocols work above the network layer and below the application
+layer, therefore it has gates to be connected with the IPv4 or IPv6 network (ipIn/ipOut or ipv6In/ipv6Out),
+and with the applications (appIn[k], appOut[k]).
 One \nedtype{TCP} module can serve several application modules, and several
 connections per application. The $k$th application connects to \nedtype{TCP}'s
 \ttt{appIn[k]} and \ttt{appOut[k]} ports. When talking to applications, a
 connection is identified by the \textit{(application port index, connId)} pair,
 where \textit{connId} is assigned by the application in the OPEN call.
 
-\subsection{Sockets}
+The TCP module usually specified by its module interface
+(\nedtype{ITCP}) in the NED definition of hosts, so it can be replaced with any implementation
+that communicates through the same gates. The \nedtype{TCP} model relies on
+sending and receiving \cppclass{IPControlInfo} objects
+attached to TCP segment objects as control info (see \ffunc{cMessage::setControlInfo()}).
 
-The \cppclass{TCPSocket} C++ class is provided to simplify managing TCP connections
-from applications. \cppclass{TCPSocket} handles the job of assembling and sending
-command messages (OPEN, CLOSE, etc) to \nedtype{TCP}, and it also simplifies
-the task of dealing with packets and notification messages coming from \nedtype{TCP}.
+\cppclass{TCP} subclassed from \cppclass{cSimpleModule}. It manages socketpair-to-connection
+mapping, and dispatches segments and user commands to the appropriate cppclass{TCPConnection} object.
 
-\subsection{Communication with the IP layer}
+\subsection{TCP packets}
 
-The \nedtype{TCP} model relies on sending and receiving \cppclass{IPControlInfo} objects
-attached to TCP segment objects as control info (see \ttt{cMessage::setControlInfo()}).
+The INET framework models the TCP header with the \msgtype{TCPSegment} message class.
+This contains the fields of a TCP frame, except:
+\begin{itemize}
+  \item Data Offset (number of 32 bit words in the header): represented by cMessage::length()
+  \item Reserved (reserved for future use)
+  \item Checksum: modelled by cMessage::hasBitError()
+  \item Header Options: currently only EOL, NOP, MSS, WS, SACK\_PERMITTED, SACK and TS are implemented
+  \item Padding
+\end{itemize}
 
-\subsection{Configuring TCP}
+The only options accepted in TCP segments are:
+\begin{itemize}
+  \item EOL: End of Option List
+  \item NOP: No Operation
+  \item MSS: Maximum Segment Size
+  \item WS: Window Size
+  \item SACK\_PERMITTED: Selective Acknowledgment Permitted
+  \item SACK: Selective Acknowledgment
+  \item TS: Timestamp
+\end{itemize}
 
-The module parameters \ttt{sendQueueClass} and \ttt{receiveQueueClass} should be
-set the names of classes that manage the actual send and receive queues.
-Currently you have two choices:
+The Data field can either be represented by (see \cppclass{TCPDataTransferMode}):
+\begin{itemize}
+  \item its byte count only
+  \item the transferred C++ packet objects
+  \item raw bytes represented a \cppclass{ByteArray} instance
+\end{itemize}
 
-\begin{enumerate}
-  \item set them to "TCPVirtualDataSendQueue" and "TCPVirtualDataRcvQueue".
-     These classes manage "virtual bytes", that is, only byte counts are
-     transmitted over the TCP connection and no actual data. cMessage
-     contents, and even message boundaries are not preserved with these
-     classes: for example, if the client sends a single cMessage with
-     length = 1 megabyte over TCP, the receiver-side client will see a
-     sequence of MSS-sized messages.
+corresponding to transfer modes BYTECOUNT, OBJECT, BYTESTREAM resp.
 
-  \item use "TCPMsgBasedSendQueue" and "TCPMsgBasedRcvQueue", which transmit
-     cMessage objects (and subclasses) over a TCP connection. The same
-     message object sequence that was sent by the client to the
-     sender-side TCP entity will be reproduced on the receiver side.
-     If a client sends a cMessage with length = 1 megabyte, the
-     receiver-side client will receive the same message object (or a clone)
-     after the TCP entities have completed simulating the transmission
-     of 1 megabyte over the connection. This is a different behaviour
-     from TCPVirtualDataSendQueue/RcvQueue.
-\end{enumerate}
+Limitations
 
-It depends on the client (app) modules which sendQueue/rcvQueue they require.
-For example, the \nedtype{TCPGenericSrvApp} module type needs message-based
-sendQueue/rcvQueue, while \nedtype{TCPEchoApp} or \nedtype{TCPSinkApp} can work
-with both (but \nedtype{TCPEchoApp} will display different behaviour!)
-In the future, other send queue and receive queue classes may be implemented,
-e.g. to allow transmission of "raw bytes" (actual byte arrays).
+%  - URG and PSH bits not handled. Receiver always acts as if PSH was set
+%    on all segments: always forwards data to the app as soon as possible.
+%  - no RECEIVE command. Received data are always forwarded to the app as
+%    soon as possible, as if the app issued a very large RECEIVE request
+%    at the beginning. This means there's currently no flow control
+%    between TCP and the app.
+%  - all timeouts are precisely calculated: timer granularity (which is caused
+%    by "slow" and "fast" i.e. 500ms and 200ms timers found in many *nix TCP
+%    implementations) is not simulated
+%  - new ECN flags (CWR and ECE). Need to be added to header by [RFC 3168].
 
-The TCP flavour supported depends on the value of the tcpAlgorithmClass
-module parameters, e.g. "TCPTahoe" or "TCPReno". In the future, other
-classes can be written which implement Vegas, LinuxTCP (which
-differs from others) or other variants.
+\subsection{TCP commands}
 
-Note that TCPOpenCommand allows sendQueueClass, receiveQueueClass and
-tcpAlgorithmClass to be chosen per-connection.
+The application and the TCP module communicates with each other
+by sending \cppclass{cMessage} objects. These messages are specified
+in the \ffilename{TCPCommand.msg} file.
 
-Further parameters are described in the NED file.
+The \cppclass{TCPCommandCode} enumeration defines the message kinds
+that are sent by the application to the TCP:
+\begin{itemize}
+  \item TCP\_C\_OPEN\_ACTIVE: active open
+  \item TCP\_C\_OPEN\_PASSIVE: passive open
+  \item TCP\_C\_SEND: send data
+  \item TCP\_C\_CLOSE: no more data to send
+  \item TCP\_C\_ABORT: abort connection
+  \item TCP\_C\_STATUS: request status info from TCP
+\end{itemize}
 
-Notes:
- - if you do active OPEN, then send data and close before the connection
-   has reached ESTABLISHED, the connection will go from SYN\_SENT to CLOSED
-   without actually sending the buffered data. This is consistent with
-   RFC 793 but may not be what you would expect.
- - handling segments with SYN+FIN bits set (esp. with data too) is
-   inconsistent across TCPs, so check this one if it is of importance
+Each command message should have an attached control info of type \cppclass{TCPCommand}.
+Some commands (TCP\_C\_OPEN\_xxx, TCP\_C\_SEND) use subclasses.
+The \cppclass{TCPCommand} object has a \fvar{connId} field that identifies the
+connection locally within the application. \fvar{connId} is to be chosen by the
+application in the open command.
+
+The \cppclass{TCPOpenCommand} control info used for active and passive opens.
+The object holds the local and remote address and port of the connection.
+In case of passive opens (i.e. \ffunc{listen()} calls) only the local
+address/port must be filled in. In case of active open, the remote
+address and port are mandatory, while the local address and port can be
+unspecified (IP will choose the source address, TCP will choose an ephemeral port).
+If the application executes a passive open, it can specify that want to handle
+only one connection at a time, or multiple simultanous connections. If the
+\fvar{fork} field is true, it emulates the Unix accept(2) semantics: a new
+connection structure is created for the connection (with a new connId),
+and the connection with the old connection id remains listening.
+With \fvar{fork} is false, the first connection is accepted (with the original connId),
+and further incoming connections will be refused by the TCP by sending an RST segment.
+The \fvar{dataTransferMode} field in \cppclass{TCPOpenCommand} specifies
+whether the application data is transmitted as C++ objects, real bytes or byte
+counts only. The congestion control algorithm can also be specified
+on a per connection basis by setting \fvar{tcpAlgorithmClass} field to the
+name of the algorithm.
+
+% TODO describe open in detail: active/passive, fork, transferMode, etc.
+
+When the application receives a message from the TCP, the message kind is
+set to one of the \cppclass{TCPStatusInd} values:
+\begin{itemize}
+  \item TCP\_I\_ESTABLISHED: connection established
+  \item TCP\_I\_CONNECTION\_REFUSED: connection refused
+  \item TCP\_I\_CONNECTION\_RESET: connection reset
+  \item TCP\_I\_TIME\_OUT: connection establish timer went off, or max retransmission count reached
+  \item TCP\_I\_DATA: data packet
+  \item TCP\_I\_URGENT\_DATA: urgent data packet
+  \item TCP\_I\_PEER\_CLOSED: FIN received from remote TCP
+  \item TCP\_I\_CLOSED: connection closed normally
+  \item TCP\_I\_STATUS: status info
+\end{itemize}
+
+These messages also have an attached control info with \cppclass{TCPCommand}
+or derived type (TCPConnectInfo, TCPStatusInfo, TCPErrorInfo).
+\cppclass{TCPConnectInfo} used with TCP\_I\_ESTABLISHED and 
+contains the local and remove IP address and port. In the responses
+to status requests \cppclass{TCPStatusInfo} object holds the detailed
+status info, such as state, local and remote addresses and ports, mss, etc.
+
+To close, the client sends a \cppclass{cMessage} to \nedtype{TCP}
+with the \ttt{TCP\_C\_CLOSE} message kind and \cppclass{TCPCommand}
+control info.
+
+\begin{note}
+If you do active OPEN, then send data and close before the connection
+has reached ESTABLISHED, the connection will go from SYN\_SENT to CLOSED
+without actually sending the buffered data. This is consistent with
+RFC 793 but may not be what you would expect.
+\end{note}
+
+\begin{note}
+Handling segments with SYN+FIN bits set (esp. with data too) is
+inconsistent across TCPs, so check this one if it is of importance.
+\end{note}
+
+% receive() calls are not modeled, incoming data passed to the application right away
+% how accurate the modeling of the receiver window?
+
+\subsection{TCP parameters}
+
+\begin{itemize}
+  \item \fpar{advertisedWindow} in bytes, corresponds with the maximal receiver buffer capacity (Note: normally, NIC queues should be at least this size, default is  14*mss)
+  \item \fpar{delayedAcksEnabled} delayed ACK algorithm (RFC 1122) enabled/disabled
+  \item \fpar{nagleEnabled} Nagle's algorithm (RFC 896) enabled/disabled
+  \item \fpar{limitedTransmitEnabled} Limited Transmit algorithm (RFC 3042) enabled/disabled (can be used for TCPReno/TCPTahoe/TCPNewReno/TCPNoCongestionControl)
+  \item \fpar{increasedIWEnabled} Increased Initial Window (RFC 3390) enabled/disabled
+  \item \fpar{sackSupport} Selective Acknowledgment (RFC 2018, 2883, 3517) support (header option) (SACK will be enabled for a connection if both endpoints support it)
+  \item \fpar{windowScalingSupport} Window Scale (RFC 1323) support (header option) (WS will be enabled for a connection if both endpoints support it)
+  \item \fpar{timestampSupport} Timestamps (RFC 1323) support (header option) (TS will be enabled for a connection if both endpoints support it)
+  \item \fpar{mss} Maximum Segment Size (RFC 793) (header option, default is 536)
+  \item \fpar{tcpAlgorithmClass} the name of TCP flavour
+  
+             Possible values are ``TCPReno'' (default), ``TCPNewReno'', ``TCPTahoe'', ``TCPNoCongestionControl'' and ``DumpTCP''.
+             In the future, other classes can be written which implement Vegas, LinuxTCP  or other variants.
+             See section \ref{sec:tcp_flavours} for detailed description of implemented flavours.
+
+             Note that TCPOpenCommand allows tcpAlgorithmClass to be chosen per-connection.
+
+  \item \fpar{recordStats} if set to false it disables writing excessive amount of output vectors
+\end{itemize}
+
+\subsection{Statistics}
+
+The TCP module collects the following vectors:
+\begin{compactitem}
+  \item \ttt{send window}
+  \item \ttt{receive window}
+  \item \ttt{advertised window}
+  \item \ttt{sent seq}
+  \item \ttt{sent ack}
+  \item \ttt{rcvd seq}
+  \item \ttt{rcvd ack}
+  \item \ttt{unacked bytes}
+  \item \ttt{rcvd dupAcks}
+  \item \ttt{pipe}
+  \item \ttt{sent sacks}
+  \item \ttt{rcvd sacks}
+  \item \ttt{rcvd oooseg}
+  \item \ttt{rcvd naseg}
+  \item \ttt{rcvd sackedBytes}
+  \item \ttt{tcpRcvQueueBytes}
+  \item \ttt{tcpRcvQueueDrops}
+\end{compactitem}
+
+% TODO definitions
+
+\subsection{Animation effects}
+
+\section{TCP connections}
+
+TCPConnection manages the connection, with the help of other objects.
+TCPConnection itself implements the basic TCP "machinery": takes care
+of the state machine, stores the state variables (TCB), sends/receives
+SYN, FIN, RST, ACKs, etc.
+
+TCPConnection internally relies on 3 objects. The first two are subclassed
+from TCPSendQueue and TCPReceiveQueue. They manage the actual data stream,
+so TCPConnection itself only works with sequence number variables.
+This makes it possible to easily accomodate need for various types of
+simulated data transfer: real byte stream, "virtual" bytes (byte counts
+only), and sequence of cMessage objects (where every message object is
+mapped to a TCP sequence number range).
+
+entry points from TCP:
+ processTimer(msg)
+ processTCPSegment(packet, srcAddr, dstAddr)
+ processAppCommand(msg)
+
+\subsection{Opening connections}
+
+initial sequence number generation
+
+MSL: maximum segment lifetime = 2 minutes
+
+sequence space $2^32$ octet = 4.5hours at 2MB/s, 5.4min at 100MB/s
+
+% FIXME TCP should have a memory of last sequence number for each connection (local/remote address/port pair)
+%       to avoid old segments accepted in the new connection
+%       if the memory is not avaiable (e.g. after a crash) then it should wait MSL first (optionally, if the app requested)
+%       otherwise it should assign an ISS that is greater than last used sequence number if within MSL.
+%       The clock based implementation of selectInitialSeqNum() is not enough.
+%       See RFC793 3.3.
+
+\subsection{Sending and Receiving Data}
+
+retransmission timout
+
+urgent data
+
+% FIXME urgBit is never set
+
+% FIXME model TCP_NODELAY, there is no PUSH flag in socket.send() (TCP_PUSH option ?)
+
+\subsection{RESET handling}
+
+reset generation
+
+ 1. when segment arrives in CLOSED state
+ 2. If the connection is in any non-synchronized state (LISTEN,
+    SYN-SENT, SYN-RECEIVED), and the incoming segment acknowledges
+    something not yet sent (the segment carries an unacceptable ACK),
+    a reset is sent.
+    
+reset processing
+
+  If the
+  receiver was in the LISTEN state, it ignores it.  If the receiver was
+  in SYN-RECEIVED state and had previously been in the LISTEN state,
+  then the receiver returns to the LISTEN state, otherwise the receiver
+  aborts the connection and goes to the CLOSED state.  If the receiver
+  was in any other state, it aborts the connection and advises the user
+  and goes to the CLOSED state.
+
+\subsection{Closing connections}
+
+CLOSE is an operation meaning ``I have no more data to send''.
+
+
+\section{TCP queues}
+
+send queues
+
+receive queues
+
+retransmit queue
+
+mapping segments into the sequence space
+
+
+\section{TCP flavours}
+\label{sec:tcp_flavours}
+
+The TCPAlgorithm object controls
+retransmissions, congestion control and ACK sending: delayed acks, slow start,
+fast retransmit, etc. are all implemented in TCPAlgorithm subclasses.
+This simplifies the design of TCPConnection and makes it a lot easier to
+implement new TCP variations such as NewReno, Vegas or LinuxTCP as
+TCPAlgorithm subclasses.
+
+Currently implemented TCPAlgorithm classes are TCPReno, TCPTahoe, TCPNewReno,
+TCPNoCongestionControl and DumbTCP.
+
+% TODO class diagram
+
+The concrete TCPAlgorithm class to use can be chosen per connection (in OPEN)
+or in a module parameter.
+
+Adaptive retransmissions: TCPBaseAlg::rttMeasurementComplete() -- RFC793 3.7
+
+Delayed ACK: each algorithms except DumbTCP applies a 200ms delay
+before sending ACK.
+
+Flow control: finite receive buffer size (initiated by parameter
+advertisedWindow). If receive buffer is exhausted (by out-of-order
+segments) and the payload length of a new received segment
+is higher than free receiver buffer, the new segment will be dropped.
+Such drops are recorded in tcpRcvQueueDropsVector.
+
+\subsection{DumbTCP}
+
+A very-very basic TCPAlgorithm implementation, with hardcoded
+retransmission timeout and no other sophistication. It can be
+used to demonstrate what happened if there was no adaptive
+timeout calculation, delayed acks, silly window avoidance,
+congestion control, etc.
+
+\subsection{TCPBaseAlg}
+
+The abstract \cppclass{TCPBaseAlg} class implements basic TCP
+algorithms for adaptive retransmissions, persistence timers,
+delayed ACKs, Nagle's algorithm, Increased Initial Window
+-- EXCLUDING congestion control. Congestion control
+is implemented in subclasses such as TCPTahoe or TCPReno.
+
+Congestion window is set to SMSS when the connection is established,
+and not touched after that. Subclasses may redefine any of the virtual
+functions here to add their congestion control code.
+
+\begin{note}
+Note: currently the timers and time calculations are done in double
+and NOT in Unix (200ms or 500ms) ticks. It's possible to write another
+TCPAlgorithm which uses ticks (or rather, factor out timer handling to
+separate methods, and redefine only those).
+\end{note}
+
+\subsection{TCPNoCongestion}
+
+TCP with no congestion control (i.e. congestion window kept very large).
+Can be used to demonstrate effect of lack of congestion control.
+
+\subsection{TCPTahoe}
+
+The \cppclass{TCPTahoe} algorithm class extends \cppclass{TCPBaseAlg}
+with Slow Start, Congestion Avoidance and Fast Retransmit congestion
+control algorithms.
+
+\subsection{TCPReno}
+
+\subsection{TCPNewReno}
+
+\subsection{Implementing new TCPAlgorithms}
+
+\section{TCP socket}
+
+%The \cppclass{TCPSocket} C++ class is provided to simplify managing TCP connections
+%from applications. \cppclass{TCPSocket} handles the job of assembling and sending
+%command messages (OPEN, CLOSE, etc) to \nedtype{TCP}, and it also simplifies
+%the task of dealing with packets and notification messages coming from \nedtype{TCP}.
+
+\cppclass{TCPSocket} is a convenience class, to make it easier to manage TCP connections
+from your application models. You'd have one (or more) \cppclass{TCPSocket} object(s)
+in your application simple module class, and call its member functions
+(bind(), listen(), connect(), etc.) to open, close or abort a TCP connection.
+
+TCPSocket chooses and remembers the connId for you, assembles and sends command
+packets (such as OPEN\_ACTIVE, OPEN\_PASSIVE, CLOSE, ABORT, etc.) to TCP,
+and can also help you deal with packets and notification messages arriving
+from TCP.
+
+A session which opens a connection from local port 1000 to 10.0.0.2:2000,
+sends 16K of data and closes the connection may be as simple as this
+(the code can be placed in your \ffunc{handleMessage()} or
+\ffunc{activity()}):
+
+\begin{cpp}
+TCPSocket socket;
+socket.connect(IPvXAddress("10.0.0.2"), 2000);
+
+msg = new cMessage("data1");
+msg->setByteLength(16*1024);  // 16K
+socket.send(msg);
+
+socket.close();
+\end{cpp}
+
+% FIXME missing setOutputGate() call
+
+Dealing with packets and notification messages coming from TCP is somewhat
+more cumbersome. Basically you have two choices: you either process those
+messages yourself, or let TCPSocket do part of the job. For the latter,
+you give TCPSocket a callback object on which it'll invoke the appropriate
+member functions: \ffunc{socketEstablished()}, \ffunc{socketDataArrived()},
+\ffunc{socketFailure()}, \ffunc{socketPeerClosed()},
+etc (these are methods of \cppclass{TCPSocket::CallbackInterface}).,
+The callback object can be your simple module class too.
+
+This code skeleton example shows how to set up a TCPSocket to use the module
+itself as callback object:
+
+\begin{cpp}
+class MyModule : public cSimpleModule, public TCPSocket::CallbackInterface
+{
+    TCPSocket socket;
+    virtual void socketDataArrived(int connId, void *yourPtr,
+                                   cPacket *msg, bool urgent);
+    virtual void socketFailure(int connId, void *yourPtr, int code);
+    ...
+};
+
+void MyModule::initialize() {
+    socket.setCallbackObject(this,NULL);
+}
+
+void MyModule::handleMessage(cMessage *msg) {
+    if (socket.belongsToSocket(msg))
+        socket.processMessage(msg); // dispatch to socketXXXX() methods
+    else
+        ...
+}
+
+void MyModule::socketDataArrived(int, void *, cPacket *msg, bool) {
+    ev << "Received TCP data, " << msg->getByteLength() << " bytes\\n";
+    delete msg;
+}
+
+void MyModule::socketFailure(int, void *, int code) {
+    if (code==TCP_I_CONNECTION_RESET)
+        ev << "Connection reset!\\n";
+    else if (code==TCP_I_CONNECTION_REFUSED)
+        ev << "Connection refused!\\n";
+    else if (code==TCP_I_TIMEOUT)
+        ev << "Connection timed out!\\n";
+}
+\end{cpp}
+
+If you need to manage a large number of sockets (e.g. in a server
+application which handles multiple incoming connections), the
+\cppclass{TCPSocketMap} class may be useful. The following code
+fragment to handle incoming connections is from the LDP module:
+
+\begin{cpp}
+TCPSocket *socket = socketMap.findSocketFor(msg);
+if (!socket)
+{
+    // not yet in socketMap, must be new incoming connection: add to socketMap
+    socket = new TCPSocket(msg);
+    socket->setOutputGate(gate("tcpOut"));
+    socket->setCallbackObject(this, NULL);
+    socketMap.addSocket(socket);
+}
+// dispatch to socketEstablished(), socketDataArrived(), socketPeerClosed()
+// or socketFailure()
+socket->processMessage(msg);
+\end{cpp}
+
+
+\section{Other TCP implementations}
+\label{sec:other_tcp}
+
+\subsection{TCP LWIP}
+
+lwIP is a light-weight implementation of the TCP/IP protocol suite
+that was originally written by Adam Dunkels of the Swedish Institute of
+Computer Science. The current development homepage is
+\url{http://savannah.nongnu.org/projects/lwip/}.
+
+The implementation targets embedded devices: it has
+very limited resource usage (it works with tens of kilobytes of RAM and
+around 40 kilobytes of ROM) and does not require an underlying OS.
+
+The \nedtype{TCP\_lwIP} model based on the 1.3.2 version of the LWIP sources.
+
+Features:
+- round trip time estimation, adaptive retransmission timeout
+- fast retransmit and fast recovery
+- slow start threshold
+- silly window avoidance
+
+
+% lwIP license file missing from INET source
+
+\subsection{TCP NSC}
+
+TCP model based on the Network Simulation Cradle by Sam Jansen.
+The NSC is available on the http://research.wand.net.nz/software/nsc.php page.
+You must read the inet/3dparty/README before use this TCP implementation.
+This model is compatible with both IPv4 (~IPv4) and ~IPv6.
+The TCP\_TRANSFER\_OBJECT data transfer mode isn't implemented yet.
+See the \nedtype{ITCP} for the TCP layer general informations.
+
+<b>Settings</b>
+
+stackName: You can select a TCP implementation with the stackName parameter
+(On the 64 bit systems, the liblinux2.6.26.so and liblinux2.6.16.so are available only).
+
+stackBufferSize: The buffer size value for selected TCP implementation.
+The NSC sets the wmem\_max, rmem\_max, tcp\_rmem, tcp\_wmem parameters to this value
+on linux TCP implementations. For details, you can see the NSC documentation.
 
 
 

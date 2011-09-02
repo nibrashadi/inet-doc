@@ -167,6 +167,13 @@
     morecomment=[l]{\#},
     morestring=[b]",
 }
+\lstdefinelanguage{pseudocode} {
+    morekeywords={if,then,else,otherwise,whenever,while},
+    sensitive=true,
+    morecomment=[l]{//},
+    morestring=[b]",
+    mathescape=true,
+}
 
 %% thick ruler on the left; also, designate backtick as LaTeX escape character
 %% (e.g. \opp needs to be written as `\opp` inside listing blocks)
@@ -186,6 +193,7 @@
 \definecolor{IniRulerColor}{rgb}{0.9,0.9,0.2}  % pale yellow
 \definecolor{FileListingRulerColor}{rgb}{0.85,0.85,0.85}  % grey
 %\definecolor{CommandLineRulerColor}{rgb}{0.9,0.9,0.2}
+\definecolor{PseudoCodeRulerColor}{rgb}{0.0,1.0,1.0}  % cyan
 
 %% See listings.pdf,pp39
 \lstnewenvironment{ned}
@@ -205,6 +213,9 @@
     {}
 \lstnewenvironment{commandline}
     {\lstset{language={},framesep=11pt,framerule=1pt,xleftmargin=16pt}}
+    {}
+\lstnewenvironment{pseudocode}
+    {\lstset{language=pseudocode,rulecolor=\color{PseudoCodeRulerColor}}}
     {}
 
 %%

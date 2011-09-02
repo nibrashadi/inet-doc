@@ -68,24 +68,84 @@ state diagram
 
 window update
 
-window scale option (RFC1323)
+\subsubsection*{Window Scale option}
 
-persistence timer: recover after window update segment lost (and current window is 0)
+% RFC1323
 
-keepalive timer
+The Window Scale option extends the size of the Window field to 32 bit.
+The format is the option field is:
+
+\begin{center}
+\begin{bytefield}{24}
+\bitbox{8}{Kind=3} &
+\bitbox{8}{Length=3} &
+\bitbox{8}{shift.cnt}
+\end{bytefield}
+\end{center}
+
+If the TCP want to enable window sizes greater than 65535, it should send
+a WS option in the SYN segment or SYN/ACK segment (if received a SYN with WS
+option). Both sides must send the option in the SYN segment to enable window scaling.
+The $shift.cnt$ field is the 2-base logarithm of the window scale of the sender.
+Valid values of $shift.cnt$ is in the $[0,14]$ range.
+
+\subsubsection*{Persistence timer}
+
+When the reciever buffer is full, it sends a 0 length window in the ACK segment
+to stop the sender. Later if the application reads the data,
+it will repeat the last ACK with an updated window to resume data sending.
+If this ACK segment is lost, then the sender is not notified, so a deadlock
+happens.
+
+To avoid this situation the sender starts a Persistence Timer when it received
+a 0 size window. If the timer expires before the window is increased it send
+a probe segment with 1 byte of data. It will receive the current window of the
+receiver in the response to this segment.
+
+\subsubsection*{Keepalive timer}
+
+TCP keepalive timer is used to detect dead connections.
 
 \subsection{Transmission policies}
 
 \subsubsection*{Retransmissions}
 
-retransmission timer
+% source: RFC1222 4.3.2.1 and Tannenbaum 6.5.10
 
-computing RTT mean and mean deviation (D)
+When the sender TCP sends a TCP segment it starts a
+retransmission timer.
+If the ACK arrives before the timer expires it is stopped,
+otherwise it triggers a retransmission of the segment.
 
-Jacobson's formula: timeout = RTT + 4 * D
+If the retransmission timeout (RTO) is too high, then lost segments
+causes high delays, if it is too low, then the receiver gets
+too many useless duplicated segments. For optimal behaviour, the
+timeout must be dynamically determined.
 
-Karn's modification: do not update RTT on any segments that have been retransmitted
-                     the timeout is doubled on each failure until the segment gets through
+Jacobson suggested to measure the RTT mean and deviation
+and apply the timeout:
+
+$$ RTO = RTT + 4 * D $$
+
+Here RTT and D are the measured smoothed roundtrip time and its
+smoothed mean deviation. They are initialized to 0 and updated each time an
+ACK segment received according to the following formulas:
+
+$$ RTT = \alpha*RTT + (1-\alpha) * M $$
+
+$$ D = \alpha*D + (1-\alpha)*|RTT-M| $$
+
+where $M$ is the time between the segments send and the acknowledgment
+arrival. Here the $\alpha$ smoothing factor is typically $7/8$.
+
+One problem may occur when computing the round trip: if the
+retransmission timer timed out and the segment is sent again,
+then it is unclear that the received ACK is a response to the
+first transmission or to the second one. To avoid confusing the
+RTT calculation, the segments that have been retransmitted
+do not update the RTT. This is known as Karn's modification.
+He also suggested to double the $RTO$ on each failure until the
+segments gets through (``exponential backoff'').
 
 \subsubsection*{Delayed ACK algorithm}
 
@@ -137,12 +197,6 @@ until the outstanding data is acknowledged.
 In the \nedtype{TCP} module this behaviour can be enabled
 by setting the \fpar{nagleEnabled} parameter to true.
 
-\subsubsection*{Selective Acknowledgments}
-
-RFC2018
-
-RFC2883
-
 \subsubsection*{Silly window avoidance}
 
 The Silly Window Syndrome (SWS) is described in RFC813. It occurs when
@@ -169,89 +223,280 @@ In RFC813 it is offered that
         segment. 
 \end{enumerate}
 
+
+\subsubsection*{Selective Acknowledgments}
+
+RFC2018
+
+With selective
+acknowledgments, the data receiver can inform the sender about all
+segments that have arrived successfully, so the sender need
+retransmit only the segments that have actually been lost.
+
+The selective acknowledgment extension uses two TCP options. The
+first is an enabling option, "SACK-permitted", which may be sent in a
+SYN segment to indicate that the SACK option can be used once the
+connection is established.  The other is the SACK option itself,
+which may be sent over an established connection once permission has
+been given by SACK-permitted.
+
+Sack-Permitted Option
+
+\begin{center}
+\begin{bytefield}{16}
+\bitbox{8}{Kind=4} &
+\bitbox{8}{Length=2}
+\end{bytefield}
+\end{center}
+
+The data sender sends Sack-Permitted in the SYN segment to
+allow the receiver to send Sack Options.
+
+Sack Option
+
+\begin{center}
+\begin{bytefield}{32}
+\bitbox[]{16}{} &
+\bitbox{8}{Kind=5} &
+\bitbox{8}{Length} \\
+\bitbox{32}{Left Edge of 1st Block} \\
+\bitbox{32}{Right Edge of 1st Block} \\
+\wordbox[]{1}{$\vdots$ \\[1ex]} \\
+\bitbox{32}{Left Edge of nth Block} \\
+\bitbox{32}{Right Edge of nth Block}
+\end{bytefield}
+\end{center}
+
+The SACK option is to be sent by a data receiver to inform the data
+sender of non-contiguous blocks of data that have been received and
+queued. Each block represents received bytes of data that are
+contiguous and isolated.
+
+The SACK
+option does not change the meaning of the Acknowledgement Number
+field.
+
+max 4 blocks (8*n+2 <= 40)
+
+first block is for the most recently received data
+
+other blocks used for the most recently reported SACK blocks
+
+(This ensures that every segment is reported at least three successive SACK options)
+
+
+RFC2883
+
+Use of the D-SACK option for reporting a duplicate segment
+
+partial duplicate segments
+
+Can detect
+\begin{itemize}
+  \item replication by the network
+  \item false retransmit due to reordering
+  \item retransmit timeout due to ACK loss
+  \item early retransmit timeout
+\end{itemize}
+
+
+   (1) A D-SACK block is only used to report a duplicate contiguous
+   sequence of data received by the receiver in the most recent packet.
+
+   (2) Each duplicate contiguous sequence of data received is reported
+   in at most one D-SACK block.  (I.e., the receiver sends two identical
+   D-SACK blocks in subsequent packets only if the receiver receives two
+   duplicate segments.)
+
+   (3) The left edge of the D-SACK block specifies the first sequence
+   number of the duplicate contiguous sequence, and the right edge of
+   the D-SACK block specifies the sequence number immediately following
+   the last sequence in the duplicate contiguous sequence.
+
+   (4) If the D-SACK block reports a duplicate contiguous sequence from
+   a (possibly larger) block of data in the receiver's data queue above
+   the cumulative acknowledgement, then the second SACK block in that
+   SACK option should specify that (possibly larger) block of data.
+
+   (5) Following the SACK blocks described above for reporting duplicate
+   segments, additional SACK blocks can be used for reporting additional
+   blocks of data, as specified in RFC 2018.
+
+
+RFC3517: loss recovery based on SACK
+
+highACK: highest ACKed sequence number
+
+highData: highest sequence number transmitted
+
+highRxt: highest sequence number which has been retransmitted
+
+pipe: sender's estimate of the number of bytes outstanding in the network
+
+\subsubsection*{Timestamp option}
+
+Efficient retransmissions depends on precious RTT measurements.
+Packet losses can reduce the precision of these measurements radically.
+When a segment lost, the ACKs received in that window can not be used;
+thus reducing the sample rate to one RTT data per window. This is
+unacceptable if the window is large.
+
+The proposed solution to the problem is to use a separate timestamp
+field to connect the request and the response on the sender side.
+The timestamp is transmitted as a TCP option. The option contains two
+32-bit timestamps:
+
+\begin{center}
+\begin{bytefield}{80}
+\bitbox{8}{Kind=5} &
+\bitbox{8}{Length=10} &
+\bitbox{32}{TS Value} &
+\bitbox{32}{TS Echo Reply} &
+\end{bytefield}
+\end{center}
+
+Here the TS Value (TSVal) field is the current value of the timestamp
+clock of the TCP sending the option, TS Echo Reply (TSecr) field is
+0 or echoes the timestamp value of that was sent by the remote TCP.
+The TSscr field is valid only in ACK segments that acknowledges new
+data. Both parties should send the TS option in their SYN segment
+in order to allow the TS option in data segments.
+
+The timestamp option can also be used for PAWS (protection against wrapped
+sequence numbers).
+
+
 \subsection{Congestion control}
 
-describe congestion
+Flow control allows the sender to slow down the transmission when the
+receiver can not accept them because of memory limitations. However
+there are other situations when a slow down is desirable. If the sender
+transmits a lot of data into the network it can overload the processing
+capacities of the network nodes, so packets are lost in the network
+layer.
 
-congestion window: sender-side limit on the amount of data the sender can transmit
-                   into the network before receiving an ACK
+For this purpose another window is maintained at the sender side, the
+congestion window (CWND). The congestion window is a sender-side limit
+on the amount of data the sender can transmit into the network before
+receiving ACK. More precisely, the sender can send at most max(CWND, WND)
+bytes above SND.UNA, therefore $ SND.NXT < SND.UNA + max(CWND, WND) $ is
+guaranteed.
 
-slow start: initial congestion window is MSS, double on each successful transmission.
-When treshold reached increment only by 1 MSS.
+The size of the congestion window is dinamically determined by monitoring
+the state of the network.
 
-
-RFC2581
-
-Definitions:
-SMSS: sender maximum segment size
-RMSS: receiver maximum segment size (default 536)
-rwnd: most recently advertised receiver window
-IW: initial sender's congestion window
-LW: loss window, size of congestion window after a TCP sender detects loss
-RW: restart window, size of congestion window after a TCP restarts transmission after an idle period
-fligth size: amount of data has been sent but not yet acknowledged
-cwnd: congestion window, sender-size limit on the amount of data the sender
-      can transmit into the network before receiving an ACK
-rwnd: receiver advertised window, receiver-side limit on the amount of outstanding data
-sstresh: whether slow start or congestion avoidance used
-
-IW <= 2*MSS
+% RFC2581
+% 
+% Definitions:
+% SMSS: sender maximum segment size
+% RMSS: receiver maximum segment size (default 536)
+% rwnd: most recently advertised receiver window
+% IW: initial sender's congestion window
+% LW: loss window, size of congestion window after a TCP sender detects loss
+% RW: restart window, size of congestion window after a TCP restarts transmission after an idle period
+% fligth size: amount of data has been sent but not yet acknowledged
+% cwnd: congestion window, sender-size limit on the amount of data the sender
+%       can transmit into the network before receiving an ACK
+% rwnd: receiver advertised window, receiver-side limit on the amount of outstanding data
+% sstresh: whether slow start or congestion avoidance used
+% 
+% IW <= 2*MSS
 
 
 \subsubsection*{Slow Start and Congestion Avoidance}
 
-slow start: cwnd < ssthresh, congestion avoidance: cwnd > ssthresh
+There are two algorithm that updates the congestion window, ``Slow Start''
+and ``Congestion Avoidance''. They are specified in RFC2581.
 
-Initial window (IW) is at most 2 MSS bytes, no more than 2 segments. 
+\begin{pseudocode}
+$cwnd \gets 2*SMSS$
+$ssthresh \gets $ upper bound of the window (e.g. $65536$)
+whenever ACK received
+  if $cwnd < ssthresh$
+    $cwnd \gets cwnd + SMSS$
+  otherwise
+    $cwnd \gets cwnd + SMSS*SMSS/cwnd$
+whenever packet loss detected
+  $cwnd \gets SMSS$
+  $ssthresh \gets max(FlightSize/2, 2*SMSS)$
+\end{pseudocode}
 
-During slow start the cwnd is increased by at most 1 SMSS bytes for each ACK received.
+Slow Start means that when the connection opened the sender initially
+sends the data with a low rate. This means that the initial
+window (IW) is at most 2 MSS, but no more than 2 segments. If there was no packet loss,
+then the congestion window is increased rapidly, it is doubled in each flight.
+When a packet loss is detected, the congestion window is reset to 1 MSS (loss window, LW)
+and the ``Slow Start'' is applied again.
 
-During congestion avoidance, cwnd is incremented by 1 full-sized segment
-per round-trip-time (RTT). One formula commonly used to update cwnd during
-congestion is $ cwnd += SMSS*SMSS/cwnd $. This adjustment is executed on every
-incoming non-duplicate ACK. (0 rounded up to 1)
+\begin{note}
+RFC3390 increased the IW to roughly 4K bytes: $min(4*MSS, max(2*MSS, 4380))$.
+\end{note}
 
-When a TCP sender detects segment loss using the retransmission timer,
-the value of sthresh is set to no more than $ max(FlightSize/2, 2*SMSS) $.
-(Flight size is the amount of data has been sent but not yet acknowledged.)
-At the same time, cwnd is set to LW (the loss window, no more than 1MSS).
+When the congestion window reaches a certain limit (slow start threshold),
+the ``Congestion Avoidance'' algorithm is applied. During ``Congestion Avoidance''
+the window is incremented by 1 MSS per round-trip-time (RTT). This is usually
+implemented by updating the window according to the $ cwnd += SMSS*SMSS/cwnd $
+formula on every non-duplicate ACK.
+
+The Slow Start Threshold is updated when a packet loss is detected.
+It is set to $max(FlightSize/2, 2*SMSS)$.
+
+How the sender estimates the flight size? The data sent, but not yet acknowledged.
+
+How the sender detect packet loss? Retransmission timer expired.
+
 
 \subsubsection*{Fast Retransmit and Fast Recovery}
 
-send a duplicate ACK immedatly when out-of-order segment received
+RFC2581 specifies two additional methods to increase the efficiency
+of congestion control: ``Fast Retransmit'' and ``Fast Recovery''.
 
-send immediate ACK when the segment fills in a gap in the segment space
+``Fast Retransmit'' requires that the receiver signal the event,
+when an out-of-order segment arrives. It is achieved by sending
+an immediate duplicate ACK. The receiver also sends an immediate
+ACK when the incoming segment fills in a gap or part of a gap.
 
-the sender retransmit the segments immediately when 3 duplicated ACK received
+When the sender receives the duplicated ACK it knows that some
+segment after that sequence number is received out-of-order or
+that the network duplicated the ACK. If 3 duplicated ACK received
+then it is more likely that a segment was dropped or delayed.
+In this case the sender starts to retransmit the segments
+immediately.
 
-Fast recovery: no slow start after loss detected as fast retransmit
+``Fast Recovery'' means that ``Slow Start'' is not applied
+when the loss is detected as 3 duplicate ACKs. The arrival
+of the duplicate ACKs indicates that the network is not fully
+congested, segments after the lost segment arrived, as well
+the ACKs.
 
-   1.  When the third duplicate ACK is received, set ssthresh to no more
-       than the value given in equation 3.
-
-   2.  Retransmit the lost segment and set cwnd to ssthresh plus 3*SMSS.
-       This artificially "inflates" the congestion window by the number
-       of segments (three) that have left the network and which the
-       receiver has buffered.
-
-   3.  For each additional duplicate ACK received, increment cwnd by
-       SMSS.  This artificially inflates the congestion window in order
-       to reflect the additional segment that has left the network.
-
-   4.  Transmit a segment, if allowed by the new value of cwnd and the
-       receiver's advertised window.
-
-   5.  When the next ACK arrives that acknowledges new data, set cwnd to
-       ssthresh (the value set in step 1).  This is termed "deflating"
-       the window.
-
-       This ACK should be the acknowledgment elicited by the
-       retransmission from step 1, one RTT after the retransmission
-       (though it may arrive sooner in the presence of significant out-
-       of-order delivery of data segments at the receiver).
-       Additionally, this ACK should acknowledge all the intermediate
-       segments sent between the lost segment and the receipt of the
-       third duplicate ACK, if none of these were lost.
+% Details?
+% 
+%    1.  When the third duplicate ACK is received, set ssthresh to no more
+%        than the value given in equation 3.
+% 
+%    2.  Retransmit the lost segment and set cwnd to ssthresh plus 3*SMSS.
+%        This artificially "inflates" the congestion window by the number
+%        of segments (three) that have left the network and which the
+%        receiver has buffered.
+% 
+%    3.  For each additional duplicate ACK received, increment cwnd by
+%        SMSS.  This artificially inflates the congestion window in order
+%        to reflect the additional segment that has left the network.
+% 
+%    4.  Transmit a segment, if allowed by the new value of cwnd and the
+%        receiver's advertised window.
+% 
+%    5.  When the next ACK arrives that acknowledges new data, set cwnd to
+%        ssthresh (the value set in step 1).  This is termed "deflating"
+%        the window.
+% 
+%        This ACK should be the acknowledgment elicited by the
+%        retransmission from step 1, one RTT after the retransmission
+%        (though it may arrive sooner in the presence of significant out-
+%        of-order delivery of data segments at the receiver).
+%        Additionally, this ACK should acknowledge all the intermediate
+%        segments sent between the lost segment and the receipt of the
+%        third duplicate ACK, if none of these were lost.
 
 \subsection{Implemented standards}
 
@@ -567,12 +812,10 @@ TCPAlgorithm subclasses.
 Currently implemented TCPAlgorithm classes are TCPReno, TCPTahoe, TCPNewReno,
 TCPNoCongestionControl and DumbTCP.
 
-% TODO class diagram
+\includegraphics{figures/tcp_algorithms}
 
 The concrete TCPAlgorithm class to use can be chosen per connection (in OPEN)
 or in a module parameter.
-
-Adaptive retransmissions: TCPBaseAlg::rttMeasurementComplete() -- RFC793 3.7
 
 Delayed ACK: each algorithms except DumbTCP applies a 200ms delay
 before sending ACK.
@@ -599,21 +842,31 @@ delayed ACKs, Nagle's algorithm, Increased Initial Window
 -- EXCLUDING congestion control. Congestion control
 is implemented in subclasses such as TCPTahoe or TCPReno.
 
-Congestion window is set to SMSS when the connection is established,
-and not touched after that. Subclasses may redefine any of the virtual
-functions here to add their congestion control code.
+Congestion window is set to SMSS when the connection is established.
+If the \fpar{increasedIWEnabled} parameter is true, then the initial
+window is increased to 4380 bytes, but at least 2 MSS and at most 4 MSS.
+The congestion window is not updated afterwards; subclasses can
+add congestion control by redefining virtual methods of the
+\cppclass{TCPBaseAlg} class.
 
-\begin{note}
-Note: currently the timers and time calculations are done in double
-and NOT in Unix (200ms or 500ms) ticks. It's possible to write another
-TCPAlgorithm which uses ticks (or rather, factor out timer handling to
-separate methods, and redefine only those).
-\end{note}
+Retransmission timeout ($RTO$) is calculated according to
+Jacobson algorithm, and Karn's modification is also applied.
+The initial value of the $RTO$ is 3s, its minimum is 1s,
+maximum is 240s ($2*MSL$).
+
+% FIXME according to RFC1222, MIN_REXMIT_TIMEOUT should be a fraction of second
+%       to accomodate high speed LANs. In the linux kernel (net/tcp.h)
+%       TCP_RTO_MIN is HZ/5 = 200ms. Consider 0ms lower bound.
 
 \subsection{TCPNoCongestion}
 
 TCP with no congestion control (i.e. congestion window kept very large).
 Can be used to demonstrate effect of lack of congestion control.
+
+% FIXME 65536 is not 'very large' nowadays, with window scaling
+%       the receive window can be as large as 2^30 bytes.
+%       Consequently the initial ssthresh is too small for Tahoe/Reno/NewReno,
+%       Slow Start is stopped too early first time.
 
 \subsection{TCPTahoe}
 
@@ -622,6 +875,8 @@ with Slow Start, Congestion Avoidance and Fast Retransmit congestion
 control algorithms.
 
 \subsection{TCPReno}
+
+Support SACK option (\fpar{sackSupport} parameter).
 
 \subsection{TCPNewReno}
 

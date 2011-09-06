@@ -4,11 +4,51 @@
 
 \section{Overview}
 
-Blah blah blah
+TCP protocol is the most widely used protocol of the Internet. It provides
+reliable, ordered delivery of stream of bytes from one application on one computer
+to another application on another computer. It is used by such applications as
+World Wide Web, email, file transfer amongst others.
+
+The baseline TCP protocol is described in RFC793, but other tens of RFCs
+contains modifications and extensions to the TCP. These proposals
+enhance the efficiency and safety of the TCP protocol and they are widely
+implemented in the real TCP modules. As a result, TCP is a complex protocol
+and sometimes it is hard to see how the different requirements interacts
+with each other.
+
+The TCP modules of the INET framework implements the following RFCs:
+
+\begin{tabular}{ll}
+RFC 793 & Transmission Control Protocol \\
+RFC 896 & Congestion Control in IP/TCP Internetworks \\
+RFC 1122 & Requirements for Internet Hosts -- Communication Layers \\
+RFC 1323 & TCP Extensions for High Performance \\ 
+RFC 2018 & TCP Selective Acknowledgment Options \\
+RFC 2581 & TCP Congestion Control \\
+RFC 2883 & An Extension to the Selective Acknowledgement (SACK) Option for TCP \\
+RFC 3042 & Enhancing TCP's Loss Recovery Using Limited Transmit \\
+RFC 3390 & Increasing TCP's Initial Window \\
+RFC 3517 & A Conservative Selective Acknowledgment (SACK)-based Loss Recovery \newline
+                 Algorithm for TCP \\
+RFC 3782 & The NewReno Modification to TCP's Fast Recovery Algorithm \\
+\end{tabular}
+
+In this section we describe the features of the TCP protocol specified by these RFCs,
+the following sections deal with the implementation of the TCP in the INET framework. 
 
 \subsection{TCP segments}
 
-The TCP segment as described in RFC793:
+The TCP module transmits a stream of the data over the unreliable, datagram service 
+that the IP layer provides. When the application writes a chunk of data into the socket,
+the TCP module breaks it down to packets and hands it over the IP. On the receiver side,
+it collects the recieved packets, order them, and acknowledges the reception. The packets
+that are not acknowledged in time are retransmitted by the sender.
+
+The TCP procotol can address each byte of the data stream by \emph{sequence numbers}.
+The sequence number is a 32-bit unsigned integer, if the end of its range is reached,
+it is wrapped around.
+
+The layout of the TCP segments is described in RFC793:
 
 \begin{center}
 \begin{bytefield}{32}
@@ -34,7 +74,8 @@ Here
   \item the Source and Destination Ports, together with the Source and Destination
   addresses of the IP header identifies the communication endpoints.
   \item the Sequence Number identifier of the first data byte transmitted in the sequence,
-  Sequence Number + 1 identifies the second byte, so on.
+  Sequence Number + 1 identifies the second byte, so on. If the SYN flag is set it consumes
+  one sequence number before the data bytes.
   \item the Acknowlegment Number refers to the next byte (if the ACK flag is set) expected
   by the receiver using its sequence number
   \item the Data Offset is the length of the TCP header in 32-bit words (needed because the
@@ -60,20 +101,53 @@ Here
 
 \subsection{TCP connections}
 
-establishment/release
+When two applications are communicating via TCP, one of the applications is the client,
+the other is the server. The server usually starts a socket with a well known local port
+and waits until a request comes from clients. The client applications are issue connection
+requests to the port and address of the service they want to use.
 
-state diagram
+After the connection is established both the client and the server can send and receive data.
+When no more data is to be sent, the application closes the socket. The application can still
+receive data from the other direction. The connection is closed when both communication partner
+closed its socket.
+
+...
+
+When opening the connection an initial sequence number is choosen and communicated to the
+other TCP in the SYN segment. This sequence number can not be a constant value (e.g. 0),
+because then data segments from a previous incarnation of the connection (i.e. a connection
+with same addresses and ports) could be erronously accepted in this connection. Therefore
+most TCP implementation choose the initial sequence number according to the system clock.
+
+
+\begin{figure}
+\includegraphics[width=\textwidth]{figures/tcpstate}
+\caption{TCP state diagram}
+\label{fig:tcp_states}
+\end{figure}
 
 \subsection{Flow control}
 
-window update
+The TCP module of the receiver buffers the data of incoming segments.
+This buffer has a limited capacity, so it is desirable to notify the sender
+about how much data the client can accept. The sender stops the transmission
+if this space exhausted.
+
+In TCP every ACK segment holds a Window field; this is the available space
+in the receiver buffer. When the sender reads the Window, it can send at most
+Window unacknowledged bytes.
 
 \subsubsection*{Window Scale option}
 
 % RFC1323
+The TCP segment contains a 16-bit field for the Window, thus allowing at most
+65535 byte windows. If the network bandwidth and latency is large, it is surely
+too small. The sender should be able to send bandwitdh*latency bytes without
+receiving ACKs. 
 
-The Window Scale option extends the size of the Window field to 32 bit.
-The format is the option field is:
+For this purpose the Window Scale (WS) option had been introduced in RFC1323.
+This option specifies a scale factor used to interpret the value of the Window field.
+The format is the option is:
 
 \begin{center}
 \begin{bytefield}{24}
@@ -85,9 +159,10 @@ The format is the option field is:
 
 If the TCP want to enable window sizes greater than 65535, it should send
 a WS option in the SYN segment or SYN/ACK segment (if received a SYN with WS
-option). Both sides must send the option in the SYN segment to enable window scaling.
+option). Both sides must send the option in the SYN segment to enable window scaling,
+but the scale in one direction might differ from the scale in the other direction.
 The $shift.cnt$ field is the 2-base logarithm of the window scale of the sender.
-Valid values of $shift.cnt$ is in the $[0,14]$ range.
+Valid values of $shift.cnt$ are in the $[0,14]$ range.
 
 \subsubsection*{Persistence timer}
 
@@ -149,7 +224,7 @@ segments gets through (``exponential backoff'').
 
 \subsubsection*{Delayed ACK algorithm}
 
-RFC1122 4.2.3.2
+% RFC1122 4.2.3.2
 
 A host that is receiving a stream of TCP data segments can
 increase efficiency in both the Internet and the hosts by
@@ -173,7 +248,7 @@ processed [TCP:5].  However, excessive delays on ACK's
 can disturb the round-trip timing and packet "clocking"
 algorithms [TCP:7].
 
-RFC2581 3.2
+% RFC2581 3.2
 
 a TCP receiver SHOULD send an immediate ACK
 when the incoming segment fills in all or part of a gap in the
@@ -226,7 +301,7 @@ In RFC813 it is offered that
 
 \subsubsection*{Selective Acknowledgments}
 
-RFC2018
+% RFC2018
 
 With selective
 acknowledgments, the data receiver can inform the sender about all
@@ -285,7 +360,7 @@ other blocks used for the most recently reported SACK blocks
 (This ensures that every segment is reported at least three successive SACK options)
 
 
-RFC2883
+% RFC2883
 
 Use of the D-SACK option for reporting a duplicate segment
 
@@ -323,7 +398,7 @@ Can detect
    blocks of data, as specified in RFC 2018.
 
 
-RFC3517: loss recovery based on SACK
+% RFC3517: loss recovery based on SACK
 
 highACK: highest ACKed sequence number
 
@@ -497,24 +572,6 @@ the ACKs.
 %        Additionally, this ACK should acknowledge all the intermediate
 %        segments sent between the lost segment and the receipt of the
 %        third duplicate ACK, if none of these were lost.
-
-\subsection{Implemented standards}
-
-This implementation supports:
-\begin{itemize}
-\item RFC 793 - Transmission Control Protocol
-\item RFC 896 - Congestion Control in IP/TCP Internetworks
-\item RFC 1122 - Requirements for Internet Hosts -- Communication Layers
-\item RFC 1323 - TCP Extensions for High Performance
-\item RFC 2018 - TCP Selective Acknowledgment Options
-\item RFC 2581 - TCP Congestion Control
-\item RFC 2883 - An Extension to the Selective Acknowledgement (SACK) Option for TCP
-\item RFC 3042 - Enhancing TCP's Loss Recovery Using Limited Transmit
-\item RFC 3390 - Increasing TCP's Initial Window
-\item RFC 3517 - A Conservative Selective Acknowledgment (SACK)-based Loss Recovery
-                 Algorithm for TCP
-\item RFC 3782 - The NewReno Modification to TCP's Fast Recovery Algorithm
-\end{itemize}
 
 
 \section{TCP module}
@@ -909,7 +966,7 @@ TCPSocket socket;
 socket.connect(IPvXAddress("10.0.0.2"), 2000);
 
 msg = new cMessage("data1");
-msg->setByteLength(16*1024);  // 16K
+msg->setByteLength(16*1024);  16K
 socket.send(msg);
 
 socket.close();
@@ -945,7 +1002,7 @@ void MyModule::initialize() {
 
 void MyModule::handleMessage(cMessage *msg) {
     if (socket.belongsToSocket(msg))
-        socket.processMessage(msg); // dispatch to socketXXXX() methods
+        socket.processMessage(msg); dispatch to socketXXXX() methods
     else
         ...
 }
@@ -974,17 +1031,16 @@ fragment to handle incoming connections is from the LDP module:
 TCPSocket *socket = socketMap.findSocketFor(msg);
 if (!socket)
 {
-    // not yet in socketMap, must be new incoming connection: add to socketMap
+    not yet in socketMap, must be new incoming connection: add to socketMap
     socket = new TCPSocket(msg);
     socket->setOutputGate(gate("tcpOut"));
     socket->setCallbackObject(this, NULL);
     socketMap.addSocket(socket);
 }
-// dispatch to socketEstablished(), socketDataArrived(), socketPeerClosed()
-// or socketFailure()
+dispatch to socketEstablished(), socketDataArrived(), socketPeerClosed()
+or socketFailure()
 socket->processMessage(msg);
 \end{cpp}
-
 
 \section{Other TCP implementations}
 \label{sec:other_tcp}
@@ -1030,6 +1086,204 @@ The NSC sets the wmem\_max, rmem\_max, tcp\_rmem, tcp\_wmem parameters to this v
 on linux TCP implementations. For details, you can see the NSC documentation.
 
 
+\section{TCP applications}
+
+This sections describes the applications using the TCP protocol.
+Each application must implement the \nedtype{ITCPApp} module interface
+to ease configuring the \nedtype{StandardHost} module.
+
+The applications described here are all contained by the
+\nedtype{inet.applications.tcpapp} package. These applications use
+\msgtype{GenericAppMsg} objects to represent the data sent between the client
+and server. The client message contains the expected reply length, the
+processing delay, and a flag indicating that the connection should be closed
+after sending the reply. This way intelligence (behaviour specific to the
+modelled application, e.g. HTTP, SMB, database protocol) needs only to be
+present in the client, and the server model can be kept simple and dumb.
+
+
+\subsection{TCPBasicClientApp}
+
+Client for a generic request-response style protocol over TCP.
+May be used as a rough model of HTTP or FTP users.
+
+The model communicates with the server in sessions. During a session,
+the client opens a single TCP connection to the server, sends several
+requests (always waiting for the complete reply to arrive before
+sending a new request), and closes the connection.
+
+The server app should be \nedtype{TCPGenericSrvApp}; the model sends
+\msgtype{GenericAppMsg} messages.
+
+Example settings:
+
+\begin{description}
+\item[FTP] \quad \\
+
+\begin{inifile}
+numRequestsPerSession = exponential(3)
+requestLength = truncnormal(20,5)
+replyLength = exponential(1000000)
+\end{inifile}
+
+\item[HTTP] \quad \\
+
+\begin{inifile}
+numRequestsPerSession = 1 # HTTP 1.0
+numRequestsPerSession = exponential(5)  # HTTP 1.1, with keepalive
+requestLength = truncnormal(350,20)
+replyLength = exponential(2000)
+\end{inifile}
+
+\end{description}
+
+Note that since most web pages contain images and may contain frames,
+applets etc, possibly from various servers, and browsers usually download
+these items in parallel to the main HTML document, this module cannot
+serve as a realistic web client.
+
+Also, with HTTP 1.0 it is the server that closes the connection after
+sending the response, while in this model it is the client.
+
+\subsection{TCPSinkApp}
+
+Accepts any number of incoming TCP connections, and discards whatever
+arrives on them.
+
+The module parameter \fpar{dataTransferMode} should be set the transfer mode in TCP layer.
+Its possible values (``bytecount'', ``object'', ``bytestream'') are described in ...
+
+\subsection{TCPGenericSrvApp}
+
+Generic server application for modelling TCP-based request-reply style
+protocols or applications.
+
+Requires message object preserving sendQueue/receiveQueue classes
+to be used with \nedtype{TCP} (that is, TCPMsgBasedSendQueue and TCPMsgBasedRcvQueue;
+TCPVirtualBytesSendQueue/RcvQueue are not good).
+
+The module accepts any number of incoming TCP connections, and expects
+to receive messages of class \msgtype{GenericAppMsg} on them. A message should
+contain how large the reply should be (number of bytes). \nedtype{TCPGenericSrvApp}
+will just change the length of the received message accordingly, and send
+back the same message object. The reply can be delayed by a constant time
+(replyDelay parameter).
+
+\subsection{TCPEchoApp}
+
+The \nedtype{TCPEchoApp} application accepts any number of incoming TCP
+connections, and sends back the messages that arrive on them, The lengths of the
+messages are multiplied by \fpar{echoFactor} before sending them back (echoFactor=1
+will result in sending back the same message unmodified.) The reply can also be
+delayed by a constant time (\fpar{echoDelay} parameter).
+
+When \nedtype{TCPEchoApp} receives data packets from TCP (and such, when they can be
+echoed) depends on the dataTransferMode setting.
+With "bytecount" and "bytestream", TCP passes up data to us
+as soon as a segment arrives, so it can be echoed immediately.
+With "object" mode, our local TCP reproduces the same
+messages that the sender app passed down to its TCP -- so if the sender
+app sent a single 100 MB message, it will be echoed only when all
+100 megabytes have arrived.
+
+\subsection{TCPSessionApp}
+
+Single-connection TCP application: it opens a connection, sends
+the given number of bytes, and closes. Sending may be one-off,
+or may be controlled by a "script" which is a series of
+(time, number of bytes) pairs. May act either as client or as server,
+and works with TCPVirtualBytesSendQueue/RcvQueue as sendQueue/receiveQueue
+setting for ~TCP.
+Compatible with both IPv4 (~IPv4) and ~IPv6.
+
+\subsubsection*{Opening the connection}
+
+Regarding the type of opening the connection, the application may
+be either a client or a server. When active=false, the application
+will listen on the given local localPort, and wait for an incoming connection.
+When active=true, the application will bind to given local localAddress:localPort,
+and connect to the connectAddress:connectPort. To use an ephemeral port
+as local port, set the localPort parameter to -1.
+
+Even when in server mode (active=false), the application will only
+serve one incoming connection. Further connect attempts will be
+refused by TCP (it will send RST) for lack of LISTENing connections.
+
+The time of opening the connection is in the tOpen parameter.
+
+\subsubsection*{Sending data}
+
+Regardless of the type of OPEN, the application can be made to send
+data. One way of specifying sending is via the tSend, sendBytes
+parameters, the other way is sendScript. With the former, sendBytes
+bytes will be sent at tSend. With sendScript, the format is
+"<time> <numBytes>;<time> <numBytes>;..."
+
+\subsubsection*{Closing the connection}
+
+The application will issue a TCP CLOSE at time tClose. If tClose=-1, no
+CLOSE will be issued.
+
+
+
+\subsection{TelnetApp}
+
+Models Telnet sessions with a specific user behaviour.
+The server app should be \nedtype{TCPGenericSrvApp}.
+
+In this model the client repeats the following activity
+between \fpar{startTime} and \fpar{stopTime}:
+
+\begin{enumerate}
+\item opens a telnet connection
+\item sends \fpar{numCommands} commands. The command is \fpar{commandLength} bytes
+      long. The command is transmitted as entered by the user character by character,
+      there is \fpar{keyPressDelay} time between the characters. The server echoes
+      each character. When the last character of the command is sent (new line),
+      the server responds with a \fpar{commandOutputLength} bytes long message.
+      The user waits \fpar{thinkTime} interval between the commands.
+\item closes the connection and waits \fpar{idleInterval} seconds
+\item if the connection is broken it is noticed after \fpar{reconnectInterval}
+      and the connection is reopened
+\end{enumerate}
+
+Each parameter in the above description is ``volatile'', so you can
+use distributions to emulate random behaviour.
+
+Additional parameters:
+addresses,ports
+dataTransferMode
+
+\begin{note}
+This module emulates a very specific user behaviour, and as such,
+it should be viewed as an example rather than a generic Telnet model.
+If you want to model realistic Telnet traffic, you are encouraged
+to gather statistics from packet traces on a real network, and
+write your model accordingly.
+\end{note}
+
+\subsection{TCPSrvHostApp}
+
+This module hosts TCP-based server applications. It dynamically creates
+and launches a new "thread" object for each incoming connection.
+
+Server threads should be subclassed from the \cppclass{TCPServerThreadBase}
+C++ class, registered in the C++ code using the Register\_Class() macro,
+and the class name should be specified in the serverThreadClass
+parameter of \nedtype{TCPSrvHostApp}. The thread object will receive events
+via a callback interface (methods like established(), dataArrived(),
+peerClosed(), timerExpired()), and can send packets via TCPSocket's send()
+method.
+
+Example server thread class: \cppclass{TCPGenericSrvThread}.
+
+\begin{important}
+Before you try to use this module, make sure you actually need it!
+In most cases, \nedtype{TCPGenericSrvApp} and \msgtype{GenericAppMsg} will be completely
+enough, and they are a lot easier to handle. You'll want to subclass your
+client from \cppclass{TCPGenericCliAppBase} then; check \nedtype{TelnetApp} and
+\nedtype{TCPBasicClientApp} for examples.
+\end{important}
 
 %%% Local Variables:
 %%% mode: latex

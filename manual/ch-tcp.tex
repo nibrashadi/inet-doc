@@ -573,6 +573,17 @@ the ACKs.
 %        segments sent between the lost segment and the receipt of the
 %        third duplicate ACK, if none of these were lost.
 
+\subsubsection*{Loss Recovery Using Limited Transmit}
+
+If there is not enough data to be send after a lost segment,
+then the Fast Retransmit algorithm is not activated, but the
+costly retranmission timeout used.
+
+RFC3042 suggests that the sender TCP should send a new data segment
+in response to each of the first two duplicate acknowledgement. Transmitting
+these segments increases the probability that TCP can recover from a single
+lost segment using the fast retransmit algorithm, rather than using a costly
+retransmission timeout.
 
 \section{TCP module}
 
@@ -597,6 +608,7 @@ attached to TCP segment objects as control info (see \ffunc{cMessage::setControl
 mapping, and dispatches segments and user commands to the appropriate cppclass{TCPConnection} object.
 
 \subsection{TCP packets}
+\label{subsec:tcp_packets}
 
 The INET framework models the TCP header with the \msgtype{TCPSegment} message class.
 This contains the fields of a TCP frame, except:
@@ -847,13 +859,29 @@ CLOSE is an operation meaning ``I have no more data to send''.
 
 \section{TCP queues}
 
-send queues
+Three queues belong to each TCP connection. The \emph{send queue} holds
+the segments not yet transmitted or not yet acknowledged. 
+The \emph{receive queue} holds the segments received by the TCP,
+but not yet passed to the application. (This happens only when the segment
+is received out-of-order.). The \emph{retransmit queue} holds additional
+information about the segments in the send queue.
 
-receive queues
+As mentioned in section \ref{subsec:tcp_packets}, there are three methods
+to represent the application data in the TCP segment. Consequently the above
+queues comes in three flavours. If the payload is transmitted as a message
+object, then \cppclass{TCPMsgBasedRcvQueue} and \cppclass{TCPMsgBasedSendQueue};
+if the payload is a byte array then \cppclass{TCPDataStreamRcvQueue} and
+\cppclass{TCPDataStreamSendQueue}; if only the message lengths are represented
+then \cppclass{TCPVirtualDataRcvQueue} and \cppclass{TCPVirtualDataSendQueue}
+are the classes of receive/send queues. The appropriate queue is created based
+on the value of the \fpar{dataTransferMode} parameter of the Open command, no
+further configuration is needed. The retransmit queue is always an
+instance of \cppclass{TCPSACKRexmitQueue}.
 
-retransmit queue
+The interfaces of the receive/send queues are defined by the
+\cppclass{TCPReceiveQueue} and \cppclass{TCPSendQueue} classes.
 
-mapping segments into the sequence space
+% mapping segments into the sequence space
 
 
 \section{TCP flavours}
@@ -933,11 +961,23 @@ control algorithms.
 
 \subsection{TCPReno}
 
+Adds Fast Recovery
+
 Support SACK option (\fpar{sackSupport} parameter).
 
 \subsection{TCPNewReno}
 
+New Reno is a slight modification of Reno. It is able to detect
+multiple packet losses.
+
+It does not exit fast-recovery until all data which was out-standing
+at the time it entered fast-recovery is acknowledged. Thus avoids
+reducing the $cwnd$ multiple times.
+
+
 \subsection{Implementing new TCPAlgorithms}
+
+TODO
 
 \section{TCP socket}
 

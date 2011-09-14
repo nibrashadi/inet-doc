@@ -298,116 +298,6 @@ In RFC813 it is offered that
         segment. 
 \end{enumerate}
 
-
-\subsubsection*{Selective Acknowledgments}
-
-% RFC2018
-
-With selective
-acknowledgments, the data receiver can inform the sender about all
-segments that have arrived successfully, so the sender need
-retransmit only the segments that have actually been lost.
-
-The selective acknowledgment extension uses two TCP options. The
-first is an enabling option, "SACK-permitted", which may be sent in a
-SYN segment to indicate that the SACK option can be used once the
-connection is established.  The other is the SACK option itself,
-which may be sent over an established connection once permission has
-been given by SACK-permitted.
-
-Sack-Permitted Option
-
-\begin{center}
-\begin{bytefield}{16}
-\bitbox{8}{Kind=4} &
-\bitbox{8}{Length=2}
-\end{bytefield}
-\end{center}
-
-The data sender sends Sack-Permitted in the SYN segment to
-allow the receiver to send Sack Options.
-
-Sack Option
-
-\begin{center}
-\begin{bytefield}{32}
-\bitbox[]{16}{} &
-\bitbox{8}{Kind=5} &
-\bitbox{8}{Length} \\
-\bitbox{32}{Left Edge of 1st Block} \\
-\bitbox{32}{Right Edge of 1st Block} \\
-\wordbox[]{1}{$\vdots$ \\[1ex]} \\
-\bitbox{32}{Left Edge of nth Block} \\
-\bitbox{32}{Right Edge of nth Block}
-\end{bytefield}
-\end{center}
-
-The SACK option is to be sent by a data receiver to inform the data
-sender of non-contiguous blocks of data that have been received and
-queued. Each block represents received bytes of data that are
-contiguous and isolated.
-
-The SACK
-option does not change the meaning of the Acknowledgement Number
-field.
-
-max 4 blocks (8*n+2 <= 40)
-
-first block is for the most recently received data
-
-other blocks used for the most recently reported SACK blocks
-
-(This ensures that every segment is reported at least three successive SACK options)
-
-
-% RFC2883
-
-Use of the D-SACK option for reporting a duplicate segment
-
-partial duplicate segments
-
-Can detect
-\begin{itemize}
-  \item replication by the network
-  \item false retransmit due to reordering
-  \item retransmit timeout due to ACK loss
-  \item early retransmit timeout
-\end{itemize}
-
-
-   (1) A D-SACK block is only used to report a duplicate contiguous
-   sequence of data received by the receiver in the most recent packet.
-
-   (2) Each duplicate contiguous sequence of data received is reported
-   in at most one D-SACK block.  (I.e., the receiver sends two identical
-   D-SACK blocks in subsequent packets only if the receiver receives two
-   duplicate segments.)
-
-   (3) The left edge of the D-SACK block specifies the first sequence
-   number of the duplicate contiguous sequence, and the right edge of
-   the D-SACK block specifies the sequence number immediately following
-   the last sequence in the duplicate contiguous sequence.
-
-   (4) If the D-SACK block reports a duplicate contiguous sequence from
-   a (possibly larger) block of data in the receiver's data queue above
-   the cumulative acknowledgement, then the second SACK block in that
-   SACK option should specify that (possibly larger) block of data.
-
-   (5) Following the SACK blocks described above for reporting duplicate
-   segments, additional SACK blocks can be used for reporting additional
-   blocks of data, as specified in RFC 2018.
-
-
-% RFC3517: loss recovery based on SACK
-
-highACK: highest ACKed sequence number
-
-highData: highest sequence number transmitted
-
-highRxt: highest sequence number which has been retransmitted
-
-pipe: sender's estimate of the number of bytes outstanding in the network
-
 \subsubsection*{Timestamp option}
 
 Efficient retransmissions depends on precious RTT measurements.
@@ -584,6 +474,179 @@ in response to each of the first two duplicate acknowledgement. Transmitting
 these segments increases the probability that TCP can recover from a single
 lost segment using the fast retransmit algorithm, rather than using a costly
 retransmission timeout.
+
+\subsubsection*{Selective Acknowledgments}
+
+% RFC2018
+
+With selective
+acknowledgments (SACK), the data receiver can inform the sender about all
+segments that have arrived successfully, so the sender need
+retransmit only the segments that have actually been lost.
+
+With the help of this information the sender can detect
+\begin{itemize}
+  \item replication by the network
+  \item false retransmit due to reordering
+  \item retransmit timeout due to ACK loss
+  \item early retransmit timeout
+\end{itemize}
+
+
+In the congestion control algorithms described so far 
+the sender has only rudimentary information about which
+segments arrived at the receiver. On the other hand
+the algorithms are implemented completely on the sender side,
+they only require that the client sends immediate ACKs on
+duplicate segments. Therefore they can work in a heterogenous
+environment, e.g. a client with Tahoe TCP can communicate with
+a NewReno server. On the other hand SACK must be supported by
+both endpoint of the connection to be used.
+
+If a TCP supports SACK it includes the \emph{SACK-Permitted} option
+in the SYN/SYN-ACK segment when initiating the connection.
+The SACK extension enabled for the connection if the \emph{SACK-Permitted}
+option was sent and received by both ends. The option occupies
+2 octets in the TCP header:
+
+\begin{center}
+\begin{bytefield}{16}
+\bitbox{8}{Kind=4} &
+\bitbox{8}{Length=2}
+\end{bytefield}
+\end{center}
+
+If the SACK is enabled then the data receiver adds SACK option
+to the ACK segments. The SACK option informs the sender about
+non-contiguous blocks of data that have been received and queued.
+The meaning of the \emph{Acknowledgement Number} is unchanged,
+it is still the cumulative sequence number. Octets received
+before the \emph{Acknowledgement Number} are kept by the receiver,
+and can be deleted from the sender's buffer. However the receiver
+is allowed to drop the segments that was only reported in the SACK
+option.
+
+The \emph{SACK} option contains the following fields:
+
+\begin{center}
+\begin{bytefield}{32}
+\bitbox[]{16}{} &
+\bitbox{8}{Kind=5} &
+\bitbox{8}{Length} \\
+\bitbox{32}{Left Edge of 1st Block} \\
+\bitbox{32}{Right Edge of 1st Block} \\
+\wordbox[]{1}{$\vdots$ \\[1ex]} \\
+\bitbox{32}{Left Edge of nth Block} \\
+\bitbox{32}{Right Edge of nth Block}
+\end{bytefield}
+\end{center}
+
+Each block represents received bytes of data that are
+contiguous and isolated with one exception: if a segment
+received that was already ACKed (i.e. below $RCV.NXT$),
+it is included as the first block of the \emph{SACK} option.
+The purpose is to inform the sender about a spurious retransmission.
+
+Each block in the option occupies 8 octets. The TCP header
+allows 40 bytes for options, so at most 4 blocks can be
+reported in the \emph{SACK} option (or 3 if TS option is also used).
+The first block is used for reporting the most recently received
+data, the following blocks repeats the most recently reported
+SACK blocks. This way each segment is reported at least 3 times,
+so the sender receives the information even if some ACK segment is
+lost.
+
+
+\textbf{SACK based loss recovery}
+
+% RFC3517: loss recovery based on SACK
+
+Now lets see how the sender can use the information in the
+\emph{SACK} option. First notice that it can give a better
+estimation of the amount of data outstanding in the network
+(called $pipe$ in RFC3517).
+If $highACK$ is the highest ACKed sequence number, and
+$highData$ of the highest sequence number transmitted,
+then the bytes between $highACK$ and $highData$ can be
+in the network. However $ pipe \neq highData - highACK $
+if there are lost and retransmitted segments:
+
+$$ pipe = highData - highACK - lostBytes + retransmittedBytes $$
+
+A segment is supposed to be lost if it was not received
+but 3 segments recevied that comes after this segment in the sequence
+number space.
+This condition is detected by the sender by receiving
+either 3 discontiguous SACKed blocks, or at least
+$3*SMSS$ SACKed bytes above the sequence numbers of the
+lost segment.
+
+The transmission of data starts with a \emph{Slow Start} phase.
+If the loss is detected by 3 duplicate ACK, the sender
+goes into the recovery state: it sets
+$cwnd$ and $ssthresh$ to $FlightSize / 2$.
+It also remembers the $highData$ variable, because
+the recovery state is left when this sequence number
+is acknowledged.
+
+In the recovery state it sends data
+until there is space in the congestion window (i.e. $cwnd-pipe >= 1 SMSS$)
+The data of the segment is choosen by the following rules (first rule that applies):
+
+\begin{enumerate}
+  \item send segments that is lost and not yet retransmitted
+  \item send segments that is not yet transmitted
+  \item send segments that is not yet retransmitted and possibly fills a gap
+        (there is SACKed data above it)
+\end{enumerate}
+
+If there is no data to send, then the sender waits for the next ACK, updates
+its variables based on the data of the received ACK, and then try to transmit
+according to the above rules.
+
+If an RTO occurs, the sender drops the collected SACK information and
+initiates a Slow Start. This is to avoid a deadlock when the receiver
+dropped a previously SACKed segment.
+
+% highACK: highest ACKed sequence number
+% 
+% highData: highest sequence number transmitted
+% 
+% highRxt: highest sequence number which has been retransmitted
+% 
+% 
+% Normal phase: before the first loss, until 3 duplicate ACK
+% 
+% Loss recovery phase: until ACK for RecoveryPoint received
+% 
+% On the transition to loss recovery phase
+% \begin{enumerate}
+%   \item RecoveryPoint=HighData
+%   \item ssthresh=cwnd=FlightSize/2
+%   \item compute \emph{pipe}
+% \end{enumerate}
+% 
+% In the loss recovery phase, for each incoming ACK:
+% 
+% \begin{enumerate}
+%   %\Alph
+%   \item if cumulative ACK above RecoveryPoint, leave loss recovery phase
+%   \item update SACK info and compute pipe
+%   \item if $cwnd-pipe >= 1 SMSS$ send one or more segments (if there is data to send)
+%   \item update HighRxt, HighData according to the sent bytes
+%   \item increment $pipe$ by the amount of data sent
+%   \item if $cwnd-pipe >= 1 SMSS$, continue sending
+% \end{enumerate}
+% 
+% Which bytes to be send are determined as follows:
+% 
+% \begin{enumerate}
+%   \item if there is a byte which is lost and not yet retransmitted, send that in 1 segment
+%   \item otherwise if there is unsent data, send that in 1 segment
+%   \item otherwise if there is not yet retransmitted data, and above that there is SACKed data, send that
+%   \item otherwise there is no data to send
+% \end{enumerate}
+
 
 \section{TCP module}
 

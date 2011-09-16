@@ -826,29 +826,43 @@ inconsistent across TCPs, so check this one if it is of importance.
 \subsection{Statistics}
 
 The TCP module collects the following vectors:
-\begin{compactitem}
-  \item \ttt{send window}
-  \item \ttt{receive window}
-  \item \ttt{advertised window}
-  \item \ttt{sent seq}
-  \item \ttt{sent ack}
-  \item \ttt{rcvd seq}
-  \item \ttt{rcvd ack}
-  \item \ttt{unacked bytes}
-  \item \ttt{rcvd dupAcks}
-  \item \ttt{pipe}
-  \item \ttt{sent sacks}
-  \item \ttt{rcvd sacks}
-  \item \ttt{rcvd oooseg}
-  \item \ttt{rcvd naseg}
-  \item \ttt{rcvd sackedBytes}
-  \item \ttt{tcpRcvQueueBytes}
-  \item \ttt{tcpRcvQueueDrops}
-\end{compactitem}
 
-% TODO definitions
+\begin{tabular}{l p{10cm}}
+  \ttt{send window} & $SND.WND$ \\
+  \ttt{receive window} & $RCV.WND$, after SWS avoidance applied \\
+  \ttt{advertised window} & $RCV.NXT + RCV.WND$ \\
+  \ttt{sent seq} & \emph{Sequence Number} of the sent segment \\
+  \ttt{sent ack} & \emph{Acknowledgement Number} of the sent segment \\
+  \ttt{rcvd seq} & \emph{Sequence Number} of the received segment \\
+  \ttt{rcvd ack} & \emph{Acknowledgement Number} of the received segment \\
+  \ttt{unacked bytes} & number of sent and unacknowledged bytes ($max of SND.NXT - SND.UNA$) \\
+  \ttt{rcvd dupAcks} & number of duplicate acknowledgements, reset to 0 when $SND.UNA$ advances \\
+  \ttt{pipe} & the value of the SACK $pipe$ variable
+               (estimated number of bytes outstanding in the network) \\
+  \ttt{sent sacks} & number of SACK blocks sent \\
+  \ttt{rcvd sacks} & number of SACK blocks received \\
+  \ttt{rcvd oooseg} & number of received out-of-order segments \\
+  \ttt{rcvd naseg} & number of received unacceptable segments (outside the receive window) \\
+  \ttt{rcvd sackedBytes} & total amount of SACKed bytes in the buffer of the sender \\
+  \ttt{tcpRcvQueueBytes} & number of bytes in the receiver's buffer \\
+  \ttt{tcpRcvQueueDrops} & number of bytes dropped by the receiver (not enough buffer) \\
+  \ttt{cwnd} & congestion window \\
+  \ttt{ssthresh} & slow start threshold \\
+  \ttt{measured RTT} & measured round trip time \\
+  \ttt{smoothed RTT} & smoothed round trip time \\
+  \ttt{RTTVAR} & measured smoothed variance of round trip time \\
+  \ttt{RTO} & retransmission timeout \\
+  \ttt{numRTOs} & number of retransmission timeouts occured \\
+\end{tabular}
 
-\subsection{Animation effects}
+If the \fpar{recordStats} parameter is set to \fkeyword{false}, then none
+of these output vectors are generated.
+
+% \subsection{Animation effects}
+% 
+% TCP module text: number of connections sorted by state
+% 
+% log, log verbose
 
 \section{TCP connections}
 

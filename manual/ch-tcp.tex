@@ -885,6 +885,25 @@ are the classes of send queues. The appropriate queue is created based
 on the value of the \fpar{dataTransferMode} parameter of the Open command, no
 further configuration is needed.
 
+% copied from tcp_lwip/queues/README
+%
+% What are these queue classes anyway? Different simulation scenarios require
+% different approaches regarding transmitted data.  In some scenarios,
+% only the amount of data ("200 Meg") is important, contents doesn't
+% matter. In this case, data can just be represented as plain byte
+% counts -- TCPVirtualDataSendQueue/RcvQueue does that.
+% 
+% In other scenarios, contents does matter a lot: maybe the app layer above
+% TCP needs to transmit cMessage objects (e.g. a HTTP request is represented
+% by a HTTPRequest message class), and you want exactly the same cMessage
+% sequence to be reproduced on the receiver side. Here, every cMessage would
+% map onto a sequence number range in the TCP stream, and the object is
+% passed up to the application when its last byte has arrved on the simulated
+% connection. This is done by TCPMsgBasedSendQueue/RcvQueue.
+% 
+% You always choose the ones appropriate for your app model.
+
+
 The message is handed over to the IP when there is
 enough room in the windows. If Nagle's algorithm is
 enabled, the TCP will collect 1 SMSS data and sends
@@ -1240,6 +1259,15 @@ socket->processMessage(msg);
 \section{Other TCP implementations}
 \label{sec:other_tcp}
 
+INET contains two other implementation of the TCP protocol:
+\nedtype{TCP\_lwIP} and \nedtype{TCP\_NSC}.
+All TCP modules implements the \nedtype{ITCP} interface and
+communicate with the application and the IP layer through the
+same interface. Therefore they can be interchanged and can
+operate with each other. See \ffilename{examples/inet/tcpclientserver/omnetpp.ini}
+how to parametrize \nedtype{StandardHost}s to use the different
+implementations.
+
 \subsection{TCP LWIP}
 
 lwIP is a light-weight implementation of the TCP/IP protocol suite
@@ -1248,38 +1276,136 @@ Computer Science. The current development homepage is
 \url{http://savannah.nongnu.org/projects/lwip/}.
 
 The implementation targets embedded devices: it has
-very limited resource usage (it works with tens of kilobytes of RAM and
-around 40 kilobytes of ROM) and does not require an underlying OS.
+very limited resource usage (it works ``with tens of kilobytes of RAM and
+around 40 kilobytes of ROM'') and does not require an underlying OS.
 
-The \nedtype{TCP\_lwIP} model based on the 1.3.2 version of the LWIP sources.
+The \nedtype{TCP\_lwIP} simple module is based on the 1.3.2 version of
+the lwIP sources.
 
 Features:
-- round trip time estimation, adaptive retransmission timeout
-- fast retransmit and fast recovery
-- slow start threshold
-- silly window avoidance
 
+\begin{compactitem}
+\item delayed ACK
+\item Nagle's algorithm
+\item round trip time estimation
+\item adaptive retransmission timeout
+\item SWS avoidance
+\item slow start threshold
+\item fast retransmit
+\item fast recovery
+\item persist timer
+\item keep-alive timer
+\end{compactitem}
+
+\subsubsection*{Limitations}
+
+\begin{itemize}
+  \item only MSS and TS TCP options are supported. The TS option is turned off
+        by default, but can be enabled by defining LWIP\_TCP\_TIMESTAMPS to 1
+        in \ffilename{lwipopts.h}.
+  \item \fvar{fork} must be \fkeyword{true} in the passive open command
+  \item The status request command (TCP\_C\_STATUS) only reports the
+          local and remote addresses/ports of the connection and
+          the MSS, SND.NXT, SND.WND, SND.WL1, SND.WL2, RCV.NXT, RCV.WND variables.
+\end{itemize}
 
 % lwIP license file missing from INET source
+% FIXME TCP_lwIP uses only connId to identify the connection instead of (connId,appGateIndex)
+% FIXME status command returns message kind TCP_C_STATUS instead of TCP_I_STATUS
+
+\subsubsection*{Statistics}
+
+The \nedtype{TCP\_lwIP} module generates the following vector files:
+
+\begin{itemize}
+  \item \ttt{send window}: value of the $SND.WND$ variable
+  \item \ttt{sent seq}: \emph{Sequence Number} of the sent segment
+  \item \ttt{sent ack}: \emph{Acknowledgment Number } of the sent segment
+  \item \ttt{receive window}: value of the $RCV.WND$ variable
+  \item \ttt{rcvd seq}: \emph{Sequence Number} of the received segment
+  \item \ttt{rcvd acq}: \emph{Acknowledgment Number} of the received segment
+\end{itemize}
+
+% FIXME the following vectors are created, but not used (copy paste?):
+%       'sent sacks', 'advertised window', 'rcvd sacks', 'unacked bytes',
+%       'rcvd dupAcks', 'pipe', 'rcvd oooseg', 'rcvd sackedBytes',
+%       'tcpRcvQueueBytes', 'tcpRcvQueueDrops'
+The creation of these vectors can be disabled by setting the \fpar{recordStats}
+parameter to \fkeyword{false}.
+
 
 \subsection{TCP NSC}
 
-TCP model based on the Network Simulation Cradle by Sam Jansen.
-The NSC is available on the http://research.wand.net.nz/software/nsc.php page.
-You must read the inet/3dparty/README before use this TCP implementation.
-This model is compatible with both IPv4 (~IPv4) and ~IPv6.
-The TCP\_TRANSFER\_OBJECT data transfer mode isn't implemented yet.
-See the \nedtype{ITCP} for the TCP layer general informations.
+Network Simulation Cradle (NSC) is a tool that allow real-world TCP/IP network stacks
+to be used in simulated networks. The NSC project is created by Sam Jansen
+and available on \url{http://research.wand.net.nz/software/nsc.php}. NSC currently
+contains Linux, FreeBSD, OpenBSD and lwIP network stacks, altough on 64-bit
+systems only Linux implementations can be built.
 
-<b>Settings</b>
+To use the \nedtype{TCP\_NSC} module you should download the 
+\ffilename{nsc-0.5.2.tar.bz2} package and follow the instructions
+in the \ffilename{<inet\_root>/3rdparty/README} file to build it.
 
-stackName: You can select a TCP implementation with the stackName parameter
-(On the 64 bit systems, the liblinux2.6.26.so and liblinux2.6.16.so are available only).
+\begin{warning}
+Before generating the INET module, check that the \emph{opp\_makemake} call
+in the make file (\ffilename{<inet\_root>/Makefile}) includes the
+\emph{-DWITH\_TCP\_NSC} argument. Without this option the \nedtype{TCP\_NSC}
+module is not built. If you build the INET library from the IDE, it is enough
+to enable the \emph{TCP (NSC)} project feature.
+\end{warning}
 
-stackBufferSize: The buffer size value for selected TCP implementation.
-The NSC sets the wmem\_max, rmem\_max, tcp\_rmem, tcp\_wmem parameters to this value
-on linux TCP implementations. For details, you can see the NSC documentation.
+\subsubsection*{Parameters}
 
+The \nedtype{TCP\_NSC} module has the following parameters:
+
+\begin{itemize}
+  \item \fpar{stackName}: the name of the TCP implementation to be used.
+  Possible values are: \ttt{liblinux2.6.10.so}, \ttt{liblinux2.6.18.so},
+  \ttt{liblinux2.6.26.so}, \ttt{libopenbsd3.5.so}, \ttt{libfreebsd5.3.so} and
+  \ttt{liblwip.so}. (On the 64 bit systems, the \ttt{liblinux2.6.26.so} and
+  \ttt{liblinux2.6.16.so} are available only).
+  
+  \item \fpar{stackBufferSize}: the size of the receive and send buffer of
+  one connection for selected TCP implementation.
+  The NSC sets the \fvar{wmem\_max}, \fvar{rmem\_max}, \fvar{tcp\_rmem}, \fvar{tcp\_wmem}
+  parameters to this value on linux TCP implementations. For details, you can see
+  the NSC documentation.
+\end{itemize}
+
+\subsubsection*{Statistics}
+
+The \nedtype{TCP\_NSC} module collects the following vectors:
+
+\begin{itemize}
+  \item \ttt{sent seq} \emph{Sequence Number} of the sent TCP segment
+  \item \ttt{sent ack} \emph{Acknowledgment Number} of the sent TCP segment
+  \item \ttt{rcvd seq} \emph{Sequence Number} of the received TCP segment
+  \item \ttt{rcvd ack} \emph{Acknowledgement Number} of the received TCP segment
+\end{itemize}
+
+\subsubsection*{Limitations}
+
+\begin{itemize}
+\item Because the kernel code is not reentrant, NSC creates a record containing
+the global variables of the stack implementation. By default there is room
+for 50 instance in this table, so you can not create more then 50 instance
+of \nedtype{TCP\_NSC}. You can increase the \fvar{NUM\_STACKS} constant
+in \ffilename{num\_stacks.h} and recompile NSC to overcome this limitation. 
+
+\item The \nedtype{TCP\_NSC} module does not supprt TCP\_TRANSFER\_OBJECT
+data transfer mode.
+
+\item The MTU of the network stack fixed to 1500, therefore MSS is 1460.
+
+\item TCP\_C\_STATUS command reports only local/remote addresses/ports and
+      current window of the connection.
+
+\end{itemize}
+
+% local address: 1.0.0.253, gateway address: 1.0.0.254, remote addresses: 2.0.0.1, 2.0.0.2, ...
+
+% FIXME connections are identified by connId, not by (appGateIndex,connId) as in TCP module.
+% FIXME TCP_NSC_Connection::getSocket() and TCP_NSC_Connection::do_checkedclose() are declared but not implemented
 
 \section{TCP applications}
 

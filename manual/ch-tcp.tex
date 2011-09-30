@@ -1150,10 +1150,52 @@ with \emph{Slow Start}, \emph{Congestion Avoidance} and
 This algorithm initiates a \emph{Slow Start} when a packet
 loss is detected.
 
+\subsubsection*{Slow Start}
+
+The congestion window is initially set to 1 SMSS or in case of
+\fpar{increasedIWEnabled} is \fkeyword{true} to 4380 bytes
+(but no less than 2 SMSS and no more than 4 SMSS). The window
+is increased on each incoming ACK by 1 SMSS, so it is approximately
+doubled in each RTT.
+
+\subsubsection*{Congestion Avoidance}
+
+When the congestion window exceeded $ssthresh$, the window
+is increased by $SMSS^2/cwnd$ on each incoming ACK event, so
+it is approximately increased by 1 SMSS per RTT.
+
+\subsubsection*{Fast Retransmit}
+
+When the 3rd duplicate ACK received, a packet loss is detected
+and the packet is retransmitted immediately. Simultanously
+the $ssthresh$ variable is set to half of the $cwnd$ (but at least 2 SMSS)
+and $cwnd$ is set to 1 SMSS, so it enters slow start again.
+
+Retransmission timeouts are handled the same way:
+$ssthresh$ will be $cwnd/2$, $cwnd$ will be 1 SMSS.
+
 \subsection{TCPReno}
 
-This algorithm implements \emph{Fast Recovery}: if a packet
-loss is detected by receiveing 3 duplicate ACKs, the congestion window is halfed.
+The \cppclass{TCPReno} algorithm extends the behaviour \cppclass{TCPTahoe}
+with \emph{Fast Recovery}. This algorithm can also use the information
+transmitted in SACK options, which enables a much more accurate
+congestion control.
+
+\subsubsection*{Fast Recovery}
+
+When a packet loss is detected by receiveing 3 duplicate ACKs,
+$ssthresh$ set to half of the current window as in Tahoe. However
+$cwnd$ is set to $ssthresh + 3*SMSS$ so it remains in congestion
+avoidance mode. Then it will send one new segment for each incoming
+duplicate ACK trying to keep the pipe full of data. This requires
+the congestion window to be inflated on each incoming duplicate
+ACK; it will be deflated to $ssthresh$ when new data gets
+acknowledged.  
+
+However a hard packet loss (i.e. RTO events) cause a
+slow start by setting $cwnd$ to 1 SMSS.
+
+\subsubsection*{SACK congestion control}
 
 This algorithm can be used with the SACK extension.
 Set the \fpar{sackSupport} parameter to \fkeyword{true} to

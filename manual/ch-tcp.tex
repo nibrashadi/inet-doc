@@ -820,6 +820,44 @@ simulated data transfer: real byte stream, "virtual" bytes (byte counts
 only), and sequence of \cppclass{cMessage} objects (where every message object is
 mapped to a TCP sequence number range).
 
+\subsection{Data transfer modes}
+
+Different applications have different needs how to represent
+the messages they communicate with. Sometimes it is enough to
+simulate the amount of data transmitted (``200 MB''), contents
+does not matter. In other scenarios contents matters a lot.
+The messages can be represented as a stream of bytes, but
+sometimes it is easier for the applications to pass message
+objects to each other (e.g. HTTP request represented by a
+\msgtype{HTTPRequest} message class).
+
+The TCP modules in the INET framework support 3 data transfer modes:
+
+\begin{itemize}
+  \item \ttt{TCP\_TRANSFER\_BYTECOUNT}: only byte counts are
+        represented, no actual payload in \msgtype{TCPSegment}s.
+        The TCP sends as many TCP segments as needed
+  \item \ttt{TCP\_TRANSFER\_BYTESTREAM}: the application can pass
+        byte arrays to the TCP. The sending TCP breaks down the bytes
+        into MSS sized chunks and transmits them as the payload
+        of the TCP segments. The receiving application can read the
+        chunks of the data.
+  \item \ttt{TCP\_TRANSFER\_OBJECT}: the application pass a
+        \cppclass{cMessage} object to the TCP. The sending
+        TCP sends as many TCP segments as needed according to
+        the message length. The \cppclass{cMessage} object
+        is also passed as the payload of the first segment. % check: first?
+        The receiving application receives the object only
+        when its last byte is received.
+\end{itemize}
+
+These values are defined in \ffilename{TCPCommand.msg} as
+the \cppclass{TCPDataTransferMode} enumeration. The application
+can set the data transfer mode per connection when the connection
+is opened. The client and the server application must specify
+the same data transfer mode.
+
+
 \subsection{Opening connections}
 
 Applications can open a local port for incoming connections by sending
@@ -873,36 +911,14 @@ by sending a message with TCP\_C\_SEND kind to the TCP.
 The attached control info must be of type \cppclass{TCPSendCommand}.
 
 The TCP will add the message to the \emph{send queue}.
-As mentioned in section \ref{subsec:tcp_packets}, there are three methods
-to represent the application data in the TCP segment.
-Consequently there are three type of send queues.
- 
-If the payload is transmitted as a message
+There are three type of send queues corresponding to the 
+three data transfer mode. If the payload is transmitted as a message
 object, then \cppclass{TCPMsgBasedSendQueue};
 if the payload is a byte array then \cppclass{TCPDataStreamSendQueue};
 if only the message lengths are represented then \cppclass{TCPVirtualDataSendQueue}
 are the classes of send queues. The appropriate queue is created based
 on the value of the \fpar{dataTransferMode} parameter of the Open command, no
 further configuration is needed.
-
-% copied from tcp_lwip/queues/README
-%
-% What are these queue classes anyway? Different simulation scenarios require
-% different approaches regarding transmitted data.  In some scenarios,
-% only the amount of data ("200 Meg") is important, contents doesn't
-% matter. In this case, data can just be represented as plain byte
-% counts -- TCPVirtualDataSendQueue/RcvQueue does that.
-% 
-% In other scenarios, contents does matter a lot: maybe the app layer above
-% TCP needs to transmit cMessage objects (e.g. a HTTP request is represented
-% by a HTTPRequest message class), and you want exactly the same cMessage
-% sequence to be reproduced on the receiver side. Here, every cMessage would
-% map onto a sequence number range in the TCP stream, and the object is
-% passed up to the application when its last byte has arrved on the simulated
-% connection. This is done by TCPMsgBasedSendQueue/RcvQueue.
-% 
-% You always choose the ones appropriate for your app model.
-
 
 The message is handed over to the IP when there is
 enough room in the windows. If Nagle's algorithm is

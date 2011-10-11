@@ -4,45 +4,120 @@
 
 \section{Overview}
 
-TODO list the modules: IP, ICMP, RoutingTable, etc.
+routing
 
+fragmentation
+
+options
+
+\subsection{Implemented standards}
+
+\begin{itemize}
+  \item RFC791: Internet Protocol
+  \item RFC792: Internet Control Message Protocol
+  \item RFC826: Address Resolution Protocol
+  \item RFC903: A Reverse Address Resolution Protocol
+  \item RFC1122: Requirements for Internet Hosts - Communication Layers
+%  \item RFC1868: ARP Extension -- UNARP
+\end{itemize}
+
+
+\subsection{INET modules}
+
+TODO list the modules: IP, ICMP, RoutingTable, etc.
 
 \section{The IP Module}
 
-The \nedtype{IP} module implements the IPv4 protocol. An IP datagram
-is represented by the \cppclass{IPDatagram} message class.
+The \nedtype{IP} module implements the IPv4 protocol.
 
-\subsection{Sending a packet over IP}
+For connecting the upper layer protocols the \nedtype{IP} module
+has \emph{transportIn[]} and \emph{transportOut[]} gate vectors.
+Usually the TCP connected to the gate 0, UDP to gate 1, ICMP to
+gate 2, IGMP to gate 3, and RSVP to gate 4.
 
-To send a packet over IP from a higher layer protocol, the module should
-fill in an \cppclass{IPControlInfo} object, attach it to the packet with
-\cppclass{cMessage}'s \ttt{setControlInfo()} method, the send it to the IP
-module.
+The IP packets are sent to the \nedtype{ARP} module through the
+\emph{queueOut} gate. The incoming IP packets are received
+directly from the network interface cards through the
+\emph{queueIn[]} gates. Each interface card knows its own
+network layer gate index.
 
-When IP sends up a packet to a higher layer protocol, it will also attach
-an \cppclass{IPControlInfo} to the packet, with the source and destination
-IP address, etc. of the IP datagram in which the packet arrived.
+\subsection{IP packets}
 
-IP can serve several higher-layer protocols. When delivering packets to
-them, the output gate is determined from the Protocol field in the IP
-header. The protocol-to-gateindex mapping must be given in the
-\ttt{protocolMapping} string parameter, in the following format:
+IP packets, IP header
 
-\begin{verbatim}
-protocolnumber:gateindex, protocolnumber:gateindex, ...
-\end{verbatim}
+\begin{center}
+\begin{bytefield}{32}
+\bitheader{0,3,4,7,8,15,16,18,19,23,24,31} \\
+\bitbox{4}{Version} &
+\bitbox{4}{IHL} &
+\bitbox{8}{\small Type of Service} &
+\bitbox{16}{Total Length} \\
+\bitbox{16}{Identification} &
+\bitbox{3}{Flags} &
+\bitbox{13}{Fragment Offset} \\
+\bitbox{8}{Time to Live} &
+\bitbox{8}{Protocol} &
+\bitbox{16}{Header Checksum} \\
+\bitbox{32}{Source Address} \\
+\bitbox{32}{Destination Address} \\
+\bitbox{24}{Options} &
+\bitbox{8}{Padding} \\
+\end{bytefield}
+\end{center}
 
-The recommended setting is:
+description of the fields
+
+An IP datagram is represented by the \cppclass{IPDatagram} message class.
+
+control info: \cppclass{IPv4ControlInfo}, \cppclass{IPv4RoutingDecision}
+
+\subsection{Sending and receiving packets}
+
+\subsection{Routing}
+
+
+\subsection{Parameters}
 
 \begin{itemize}
-  \item TCP (6) : 0
-  \item UDP (17) : 1
-  \item ICMP (1) : 2
-  \item IGMP (2) : 3
-  \item RSVP (46) : 4
+  \item \fpar{procDelay}
+  \item \fpar{timeToLive}
+  \item \fpar{multicastTimeToLive}
+  \item \fpar{protocolMapping}
+  \item \fpar{fragmentTimeout}
+  \item \fpar{forceBroadcast}
 \end{itemize}
 
-That is, \ttt{protocolMapping} should be set to \ttt{"6:0,17:1,1:2,2:3,46:4"}.
+% \subsection{Sending a packet over IP}
+% 
+% To send a packet over IP from a higher layer protocol, the module should
+% fill in an \cppclass{IPControlInfo} object, attach it to the packet with
+% \cppclass{cMessage}'s \ttt{setControlInfo()} method, the send it to the IP
+% module.
+% 
+% When IP sends up a packet to a higher layer protocol, it will also attach
+% an \cppclass{IPControlInfo} to the packet, with the source and destination
+% IP address, etc. of the IP datagram in which the packet arrived.
+% 
+% IP can serve several higher-layer protocols. When delivering packets to
+% them, the output gate is determined from the Protocol field in the IP
+% header. The protocol-to-gateindex mapping must be given in the
+% \ttt{protocolMapping} string parameter, in the following format:
+% 
+% \begin{verbatim}
+% protocolnumber:gateindex, protocolnumber:gateindex, ...
+% \end{verbatim}
+% 
+% The recommended setting is:
+% 
+% \begin{itemize}
+%   \item TCP (6) : 0
+%   \item UDP (17) : 1
+%   \item ICMP (1) : 2
+%   \item IGMP (2) : 3
+%   \item RSVP (46) : 4
+% \end{itemize}
+% 
+% That is, \ttt{protocolMapping} should be set to \ttt{"6:0,17:1,1:2,2:3,46:4"}.
 
 \subsection{Routing, and interfacing with lower layers}
 
@@ -61,20 +136,20 @@ contains the next hop address and the output interface number.
 Routing protocol implementations can query and manipulate the route table
 by calling \nedtype{RoutingTable}'s C++ methods.
 
-\subsection{Performance model, QoS}
+% \subsection{Performance model, QoS}
+% 
+% In the current form, IP contains a FIFO which queues up IP datagrams;
+% datagrams are processed in order. The processing time is determined by the
+% \ttt{procDelay} module parameter.
+% 
+% The current performance model comes from the \cppclass{QueueBase} C++ base
+% class. If you need a more sophisticated performance model, you may change
+% the module implementation (the IP class), and: (1) override the
+% startService() method which determines processing time for a packet, or (2)
+% use a different base class.
 
-In the current form, IP contains a FIFO which queues up IP datagrams;
-datagrams are processed in order. The processing time is determined by the
-\ttt{procDelay} module parameter.
 
-The current performance model comes from the \cppclass{QueueBase} C++ base
-class. If you need a more sophisticated performance model, you may change
-the module implementation (the IP class), and: (1) override the
-startService() method which determines processing time for a packet, or (2)
-use a different base class.
-
-
-\section{The IP routing files}
+\subsection{The IP routing files}
 
 Routing files are files with \ttt{.irt} or \ttt{.mrt} extension,
 and their names are passed in the routingFileName parameter
@@ -172,6 +247,141 @@ accepted with the meaning \ttt{0.0.0.0}.
 \textit{Interface} is the interface name, e.g. \ttt{eth0}.
 
 
+
+\section{The ICMP module}
+
+error handling: \nedtype{ErrorHandling}
+
+% \section{The IGMP module}
+
+\section{The ARP module}
+
+The \nedtype{ARP} module implements the Address Resolution Protocol (RFC826).
+The ARP protocol is designed to translate a local protocol address
+to a hardware address. Altough the ARP protocol can be used with
+several network protocol and hardware addressing schemes, in practice
+they are almost always IPv4 and 802.3 addresses. The INET implementation
+of the ARP protocol (the \nedtype{ARP} module) supports only
+IP address $\rightarrow$ MAC address translation. 
+
+If a node wants to send an IP packet to a node whose MAC address is unknown,
+it broadcasts an ARP frame on the Ethernet network.
+In the request its publish its own IP and
+MAC addresses, so each node in the local subnet can update their mapping.
+The node whose MAC address was requested will respond with an ARP frame
+containing its own MAC address directly to the node that sent the
+request. When the original node receives the ARP response, it updates 
+its ARP cache and sends the delayed IP packet using the learned MAC address.
+
+The frame format of the ARP request and reponse is shown in Figure \ref{fig:ARP_frame}.
+In our case the HTYPE (hardware type), PTYPE (protocol type), HLEN (hardware address length)
+and PLEN (protocol address length) are constants: HTYPE=Ethernet (1), PTYPE=IPv4 (2048), HLEN=6,
+PLEN=4. The OPER (operation) field is 1 for an ARP request and 2 for an ARP response.
+The SHA field contains the 48-bit hardware address of the sender, SPA field is
+the 32-bit IP address of the sender; THA and TPA are the addresses of the target.
+The message class corresponding to the ARP frame is \msgtype{ARPPacket}.
+In this class only the OPER, SHA, SPA, THA and TPA fields are stored.
+The length of an \msgtype{ARPPacket} is 28 bytes.
+
+\begin{figure}[h]
+\begin{center}
+\label{fig:ARP_frame}
+\begin{bytefield}{16}
+\bitheader{0,7,8,15} \\
+\bitbox{16}{HTYPE} \\
+\bitbox{16}{PTYPE} \\
+\bitbox{8}{HLEN} &
+\bitbox{8}{PLEN} \\
+\bitbox{16}{OPER} \\
+\wordbox{3}{SHA} \\
+\wordbox{2}{SPA} \\
+\wordbox{3}{THA} \\
+\wordbox{2}{TPA} \\
+\end{bytefield}
+\caption{ARP frame}
+\end{center}
+\end{figure}
+
+The \nedtype{ARP} module receives IP datagrams and ARP responses from \nedtype{IPv4}
+on the \ttt{ipIn} gate and transmits IP datagrams and ARP requests on the \ttt{nicOut[]} gates
+towards the network interface cards. ARP broadcasts the requests on the local network,
+so the NIC's entry in the \nedtype{InterfaceTable} should have \ffunc{isBroadcast()} flag
+set in order to participate in the address resolution.
+
+The incoming IP packet should have an attached \cppclass{IPv4RoutingDecision} control
+info containing the IP address of the next hop. If the hardware address is found
+in the ARP cache, then the packet is transmitted to the addressed interface immediately.
+Otherwise the packet is queued and an address resolution takes place.
+The \nedtype{ARP} module creates an \msgtype{ARPPacket} object, sets the sender
+MAC and IP address to its own address, sets the destination IP address
+to the address of the target of the IP datagram, leave the destination MAC address
+blank and broadcasts the packet on each network interface with broadcast capability.
+Before sending the ARP packet, it retransmission a timer. If the timer expires,
+it will retransmit the ARP request, until the maximum retry count is reached.
+If there is no response to the ARP request, then the address resolution fails,
+and the IP packet is dropped from the queue. Otherwise the MAC address of the
+destination is learned and the IP packet can be transmitted on the corresponding
+interface.
+
+When an ARP packet is received on the \ttt{ipIn} gate, and the sender's IP
+is already in the ARP cache, it is updated with the information in the ARP frame.
+Then it is checked that the destination IP of the packet matches with our
+address. In this case a new entry is created with the sender addresses in the
+ARP cache, and if the packet is a request a response is created and sent directly
+to the originator. If proxy ARP is enabled, the request can be responded
+with our MAC address if we can route IP packets to the destination.
+
+Usually each \nedtype{ARP} module maintains a local ARP cache.
+However it is possible to use a global cache. The global cache is filled
+in with entries of the IP and MAC addresses of the known interfaces
+when the ARP modules are initiated (at simulation time 0).
+\nedtype{ARP} modules that are using the global ARP cache
+never initiate an address resolution; if an IP address not
+found in the global cache, the simulation stops with an error.
+However they will respond to ARP request, so the simulation can
+be configured so that some \nedtype{ARP}s use local, while others
+the global cache.
+
+When an entry is inserted or updated in the local ARP cache,
+the simulation time saved in the entry. The mapping in the
+entry is not used after the configured \fpar{cacheTimeout}
+elapsed. This parameter does not affect the entries of
+the global cache however.
+
+% FIXME why the global cache is cleared when an ARP module is deleted?
+
+The module parameters of \nedtype{ARP} are:
+
+\begin{itemize}
+  \item \fpar{retryTimeout}: number of seconds ARP waits between retries to resolve an IPv4 address (default is 1s)
+  \item \fpar{retryCount}: number of times ARP will attempt to resolve an IPv4 address (default is 3)
+  \item \fpar{cacheTimeout}: number of seconds unused entries in the cache will time out (default is 120s)
+  \item \fpar{proxyARP}: enables proxy ARP mode (default is \fkeyword{true})
+  \item \fpar{globalARP}: use global ARP cache (default is \fkeyword{false})
+\end{itemize}
+
+The \nedtype{ARP} module emits four signals:
+
+\begin{itemize}
+  \item \ttt{sentReq}: emits 1 each time an ARP request is sent
+  \item \ttt{sentReplies}: emits 1 each time an ARP response is sent
+  \item \ttt{initiatedResolution}: emits 1 each time an ARP resolution is initiated 
+  \item \ttt{failedResolution}: emits 1 each time an ARP resolution is failed
+\end{itemize}
+
+These signals are recorded as vectors and their counts as scalars.
+
+% TODO watches, animation effects
+
+\section{The NetworkLayer module}
+
+compound module: IP, ICMP, ErrorHandling, IGMP, ARP
+
+\section{Applications}
+
+\nedtype{IIPvXTraffixGenerator}, \nedtype{IPvXTrafGen}, \nedtype{IPvXTrafSink}
+
+\nedtype{PingApp}
 
 %%% Local Variables:
 %%% mode: latex

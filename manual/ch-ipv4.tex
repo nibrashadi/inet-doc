@@ -148,6 +148,36 @@ by calling \nedtype{RoutingTable}'s C++ methods.
 % startService() method which determines processing time for a packet, or (2)
 % use a different base class.
 
+\section{The RoutingTable module}
+
+The \nedtype{RoutingTable} module does not have any connections,
+it is accessed by direct method calls instead.
+
+The routing table is modified by routing algorithms (FlatNetworkConfigurator, OSPF, Manet, bgpv4).
+Static routes can be described by a text file. Read in stage 1.
+
+The routing table queried by the \nedtype{IP} module for routing decisions.
+
+Methods:
+
+\begin{itemize}
+  \item \ffunc{getInterfaceForDestAddress}
+  \item \ffunc{getGatewayForDestAddress}
+  \item \ffunc{findBestMatchingRoutes}
+  \item \ffunc{getMulticastRoutesFor}
+\end{itemize}
+
+% addRoute/deleteRoute
+
+Parameters:
+
+\begin{itemize}
+  \item \fpar{routerId}: for routers, the router id using IPv4 address dotted notation;
+        specify ``auto'' to select the highest interface address; should be left empty ``''
+        for hosts
+  \item \fpar{IPForward}: turns IP forwarding on/off
+  \item \fpar{routingFile}: routing table file name
+\end{itemize}
 
 \subsection{The IP routing files}
 
@@ -250,7 +280,91 @@ accepted with the meaning \ttt{0.0.0.0}.
 
 \section{The ICMP module}
 
-error handling: \nedtype{ErrorHandling}
+The Internet Control Message Protocol (ICMP) is the error reporting and
+diagnostic mechanism of the Internet.
+It uses the services of IP, so it is a transport layer protocol, but unlike
+TCP or UDP it is not used to transfer user data. It can not be separated
+from the IP, because the routing errors are reported by ICMP.
+
+The \nedtype{ICMP} module can be used to send error messages and ping
+request. It can also respond to incoming ICMP messages.
+
+Each ICMP message is encapsulated within an IP datagram, so its delivery
+is unreliable.
+
+\begin{center}
+\begin{bytefield}{32}
+\bitheader{0,7,8,15,31} \\
+\bitbox{8}{Type} &
+\bitbox{8}{Code} &
+\bitbox{16}{Checksum} \\
+\bitbox{32}{Rest of header} \\
+\wordbox{2}{Internet Header + 8 bytes of Original Datagram}
+\end{bytefield}
+\end{center}
+
+The corresponding message class (\msgtype{ICMPMessage}) contains only
+the Type and Code fields. The message encapsulates the IP packet that 
+triggered the error, or the data of the ping request/reply.
+
+% FIXME type=PARAMETER_PROBLEM, code=0: missing Pointer field from ICMPMessage
+%            REDIRECT: Gateway Internet Address
+%            ECHO_REQUEST, ECHO_REPLY: Identifier, Sequence Number
+%            TIMESTAMP_REQUEST, TIMESTAMP_REPLY: Identifier, Sequence Number, Originate Timestamp, Receive Timestamp, Transmit Timestamp
+
+% FIXME wrong type codes for ICMP_DESTINATION_UNREACHABLE (3), ICMP_ECHO_REQUEST (8), ICMP_ECHO_REPLY (0), ICMP_TIMESTAMP_REQUEST (13), ICMP_TIMESTAMP_REPLY (14)
+
+The \nedtype{ICMP} module has two methods which can be used by other modules
+to send ICMP error messages:
+\begin{itemize}
+  \item \ffunc[sendErrorMessage]{sendErrorMessage(IPv4Datagram*, ICMPType, ICMPCode)}
+        used by the network layer to report erronous IPv4 datagrams. The ICMP header
+        fields are set to the given type and code, and the ICMP message will encapsulate
+        the given datagram.
+  \item \ffunc[sendErrorMessage]{sendErrorMessage(cPacket*, IPv4ControlInfo*, ICMPType, ICMPCode)}
+        used by the transport layer components to report erronous packets. The transport
+        packet will be encapsulated into an IP datagram before wrapping it into the ICMP message.
+\end{itemize}
+
+The \nedtype{ICMP} module can be accessed from other modules of the node by calling
+\ffunc{ICMPAccess::get()}.
+
+When an incoming ICMP error message is received, the \nedtype{ICMP} module
+sends it out on the \ttt{errorOut} gate unchanged. It is assumed that an
+external module is connected to \ttt{errOut} that can process the error
+packet. There is a simple module (\nedtype{ErrorHandling}) that simply
+logs the error and drops the message. Note that the \nedtype{IPv4} module
+does not send REDIRECT, DESTINATION\_UNREACHABLE,
+TIME\_EXCEEDED and PARAMETER\_PROBLEM messages to the \nedtype{ICMP} module,
+it will send them to the transport layer module that sent the bogus
+packet encapsulated in the ICMP message.
+\begin{note}
+ICMP protocol encapsulates only the IP header + 8 byte following the IP header
+from the bogus IP packet. The ICMP packet length computed from this truncated
+packet, despite it encapsulates the whole IP message object.
+As a consequence, calling \ffunc{decapsulate()} on the ICMP message
+will cause an ``packet length became negative'' error. To avoid this,
+use \ffunc{getEncapsulatedMsg()} to access the IP packet that caused the ICMP
+error. 
+\end{note}
+
+The \nedtype{ICMP} module receives ping commands on the \ttt{pingIn}
+gate from the application. The ping command can be any packet
+having an \cppclass{IPv4ControlInfo} control info. The packet
+will be encapsulated with an \msgtype{ICMPMessage} and
+handed over to the IP.
+
+If \nedtype{ICMP} receives an echo request from IP, the original
+message object will be returned as the echo reply. Of course,
+before sending back the object to IP, the source and destination
+addresses are swapped and the message type changed to ICMP\_ECHO\_REPLY.
+
+When an ICMP echo reply received, the application message decapsulated
+from it and passed to the application through the \ttt{pingOut} gate.
+The \cppclass{IPv4ControlInfo} also copied from the \msgtype{ICMPMessage}
+to the application message. 
+
+% FIXME ICMP TIMESTAMP requests are processed as ECHO requests
 
 % \section{The IGMP module}
 
@@ -373,15 +487,98 @@ These signals are recorded as vectors and their counts as scalars.
 
 % TODO watches, animation effects
 
+\section{The IGMP module}
+
+
 \section{The NetworkLayer module}
 
 compound module: IP, ICMP, ErrorHandling, IGMP, ARP
 
 \section{Applications}
 
-\nedtype{IIPvXTraffixGenerator}, \nedtype{IPvXTrafGen}, \nedtype{IPvXTrafSink}
+They can be used with both IPv4 and IPv6.
 
-\nedtype{PingApp}
+\subsection{IP traffic generators}
+
+Traffic generators that connect directly to IP (without using TCP or UDP):
+\nedtype{IIPvXTraffixGenerator} (prototype).
+ \nedtype{IPvXTrafGen},
+
+Sends IP or IPv6 datagrams to the given address at the given \fpar{sendInterval}.
+The \fpar{sendInterval} parameter can be a constant or a random value (e.g. exponential(1)).
+If the \fpar{destAddresses} parameter contains more than one address, one
+of them is randomly for each packet. An address may be given in the
+dotted decimal notation (or, for IPv6, in the usual notation with colons),
+or with the module name. (The \cppclass{IPvXAddressResolver} class is used to resolve
+the address.) To disable the model, set destAddresses to "".
+
+The \nedtype{IPvXTrafGen} sends messages with length \fpar{packetLength}.
+The sent packet is emitted in the \fsignal{sentPk} signal.
+The length of the sent packets can be recorded as scalars and vectors.
+
+% FIXME packetLength declared as volatile, but in fact it is not.
+
+The \nedtype{IPvXTrafSink} can be used as a receiver of the packets
+generated by the traffic generator. This module emits the packet
+in the \fsignal{rcvdPacket} signal and drops it. The \ttt{rcvdPkBytes}
+and \ttt{endToEndDelay} statistics are generated from this signal.
+
+The \nedtype{IPvXTrafGen} can also be the peer of the traffic generators;
+it handles the received packets exactly like \nedtype{IPvXTrafSink}.
+
+You can see an example usage of these applications in \ffilename{examples/inet/routerperf/omnetpp.ini}
+simulaton.
+
+\subsection{The PingApp application}
+
+The \nedtype{PingApp} application
+generates ping requests and calculates the packet loss and round trip
+parameters of the replies.
+
+Start/stop time, sendInterval etc. can be specified via parameters. An address
+may be given in the dotted decimal notation (or, for IPv6, in the usual
+notation with colons), or with the module name.
+(The \cppclass{IPvXAddressResolver} class is used to resolve the address.)
+To disable send, specify empty destAddr.
+
+Every ping request is sent out with a sequence number, and replies are
+expected to arrive in the same order. Whenever there's a jump in the
+in the received ping responses' sequence number (e.g. 1, 2, 3, 5), then
+the missing pings (number 4 in this example) is counted as lost.
+Then if it still arrives later (that is, a reply with a sequence number
+smaller than the largest one received so far) it will be counted as
+out-of-sequence arrival. So the number of really lost pings will be
+"lost" minus "out-of-order" (assuming there's no duplicate or bogus reply).
+
+Uses \msgtype{PingPayload} as payload for the ICMP(v6) Echo Request/Reply packets.
+
+\subsubsection*{Parameters}
+
+\begin{itemize}
+  \item \fpar{destAddr}: destination address
+  \item \fpar{srcAddr}: source address (useful with multi-homing)
+  \item \fpar{packetSize}: of ping payload, in bytes (default is 56)
+  \item \fpar{sendInterval}: time to wait between pings (can be random, default is 1s)
+  \item \fpar{hopLimit}: TTL or hopLimit for IP packets (default is 32)
+  \item \fpar{count}: stop after \fpar{count} ping request, 0 means continuously
+  \item \fpar{startTime}: send first ping request at \fpar{startTime}
+  \item \fpar{stopTime}: time of finish sending, 0 means forever
+  \item \fpar{printPing}: dump on stdout (default is \fkeyword{true})
+\end{itemize}
+
+\subsubsection*{Signals and Statistics}
+
+\begin{itemize}
+  \item \fsignal{endToEndDelay} value of the round trip time
+  \item \fsignal{drop} number of dropped packets
+  \item \fsignal{outOfOrderArrival} number of packets arrived out-of-order
+  \item \fsignal{pingTx} sequence number of the sent ping request
+  \item \fsignal{pingRx} sequence number of the received ping response
+\end{itemize}
+
+\ttt{pingRTT} stat
+
+% FIXME seqNo should be part of ICMPMessage
 
 %%% Local Variables:
 %%% mode: latex

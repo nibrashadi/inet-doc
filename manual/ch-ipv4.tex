@@ -1,10 +1,12 @@
+% based on 'integration' branch: a4af10cd976d27c3af546230f4e27e3688cf29ad
+
 \chapter{IPv4}
 \label{cha:ipv4}
 
 
 \section{Overview}
 
-routing
+routing: hosts, routers
 
 fragmentation
 
@@ -26,20 +28,32 @@ options
 
 TODO list the modules: IP, ICMP, RoutingTable, etc.
 
-\section{The IP Module}
 
-The \nedtype{IP} module implements the IPv4 protocol.
 
-For connecting the upper layer protocols the \nedtype{IP} module
+\section{The IPv4 Module}
+
+The \nedtype{IPv4} module implements the IPv4 protocol.
+
+For connecting the upper layer protocols the \nedtype{IPv4} module
 has \emph{transportIn[]} and \emph{transportOut[]} gate vectors.
-Usually the TCP connected to the gate 0, UDP to gate 1, ICMP to
-gate 2, IGMP to gate 3, and RSVP to gate 4.
 
 The IP packets are sent to the \nedtype{ARP} module through the
 \emph{queueOut} gate. The incoming IP packets are received
 directly from the network interface cards through the
 \emph{queueIn[]} gates. Each interface card knows its own
 network layer gate index.
+
+% \subsection{Performance model, QoS}
+% 
+% In the current form, IP contains a FIFO which queues up IP datagrams;
+% datagrams are processed in order. The processing time is determined by the
+% \ttt{procDelay} module parameter.
+% 
+% The current performance model comes from the \cppclass{QueueBase} C++ base
+% class. If you need a more sophisticated performance model, you may change
+% the module implementation (the IP class), and: (1) override the
+% startService() method which determines processing time for a packet, or (2)
+% use a different base class.
 
 \subsection{IP packets}
 
@@ -65,16 +79,313 @@ IP packets, IP header
 \end{bytefield}
 \end{center}
 
-description of the fields
+The \ttt{Version} field is 4 for IPv4. The 4-bit \ttt{IHL} field is the
+number of 32-bit words in the header. It is needed because the header
+may contain optional fields, so its length may vary. The minimum IP header
+length is 20, the maximum length is 60. The header is always padded to
+multiple of 4 bytes. The \ttt{Type of Service} field designed to store
+priority and preference values of the IP packet, so applications can
+request low delay, high throughput, and maximium reliability from the
+routing algorithms. In reality these fields are rarely set by applications,
+and the routers mostly ignore them. The \ttt{Total Length} field is the
+length of the whole datagram in bytes. The \ttt{Identification} field
+is used for identifying the datagram sent by a host. It is usually generated
+by incrementing a counter for each outgoing datagram. When the datagram
+gets fragmented by a router, its \ttt{Identification} field is kept unchanged
+to the other end can collect them. In datagram fragments the \ttt{Fragment Offset}
+is the address of the fragment in the payload of the original datagram. It is
+measured in 8-byte units, so fragment lengths must be a multiple of 8.
+Each fragment except the last one, has its \ttt{MF} (more fragments) bit set
+in the \ttt{Flags} field. The other used flag in \ttt{Flags} is the \ttt{DF}
+(don't fragment) bit which forbids the fragmentation of the datagram.
+The \ttt{Time to Live} field is decremented by each router in the path,
+and the datagram is dropped if it reached 0. Its purpose is to prevent
+endless cycles if the routing tables are not properly configured, but
+can be used for limiting hop count range of the datagram (e.g. for local
+broadcasts, but the \fprog{traceroute} program uses this field too).
+The \ttt{Protocol} field is for demultiplexing the payload of the IP
+datagram to higher level protocols. Each transport protocol has a registered
+protocol identifier. The \ttt{Header Checksum} field is the 16-bit one's
+complement sum of the header fields considered as a sequence of 16-bit numbers.
+The \ttt{Source Address} and \ttt{Destination Address} are the IPv4 addresses
+of the source and destination respectively.
 
-An IP datagram is represented by the \cppclass{IPDatagram} message class.
+The \ttt{Options} field contains 0 or more IP options. It is always padded
+with zeros to a 32-bit boundary. An option is either a single-byte option
+code or an option code + option length followed by the actual values for
+the option. Thus IP implementations can skip unknown options.
 
-control info: \cppclass{IPv4ControlInfo}, \cppclass{IPv4RoutingDecision}
+An IP datagram is represented by the \msgtype{IPv4Datagram} message class.
+It contains variables corresponding the fields of the IP header, except:
+\begin{itemize}
+  \item \fvar{Header Checksum} omitted, modeled by error bit of packets
+  \item \fvar{Options} only the following options are permitted and the
+                       datagram can contain at most one option:
+        \begin{itemize}
+          \item Loose Source Routing
+          \item Strict Source Routing
+          \item Timestamp
+          \item Record Route
+        \end{itemize}
+\end{itemize}
 
-\subsection{Sending and receiving packets}
+The \fvar{Type of Service} field is called \ttt{diffServCodePoint} in
+\nedtype{IPv4Datagram}.
 
-\subsection{Routing}
+Before sending the \msgtype{IPv4Datagram} through the network, the \nedtype{IPv4}
+module attaches a \cppclass{IPv4RoutingDecision} control info.
+The control info contains the IP address of the next hop, and the
+identifier of the interface it should be sent. The ARP module translate
+the IP address to the hardware address on the local net of the specified
+interface and forwards the datagram to the interface card.
 
+\subsection{Interface with higher layer}
+
+Higher layer protocols should be connected to the \ttt{transportIn}/\ttt{transportOut}
+gates of the \nedtype{IPv4} module.
+
+\subsubsection*{Sending packets}
+
+Higher layer protocols can send a packet by attaching a \cppclass{IPv4ControlInfo}
+object to their packet and sending it to the \nedtype{IPv4} module.
+
+% receiving IP datagrams from higher layer?
+
+The following fields must be set in the control info:
+\begin{itemize}
+  \item \fvar{procotol}: the \ttt{Protocol} field of the IP datagram. Valid values
+        are defined in the \ttt{IPProtocolId} enumeration.
+  \item \fvar{destAddr}: the \ttt{Destination Address} of the IP datagram.
+\end{itemize}
+
+Optionally the following fields can be set too:
+\begin{itemize}
+\item \fvar{scrAddr}: \ttt{Source Address} of the IP datagram. If given it must match with the
+      address of one of the interfaces of the node, but the datagram is not necessarily
+      routed through that interface. If left unspecified, then the address of the
+      outgoing interface will be used.
+\item \fvar{timeToLive}: TTL of the IP datagram or -1 (unspecified). If unspecified then the TTL
+      of the datagram will be 1 for destination addresses in the
+      224.0.0.0 -- 224.0.0.255 range. (Datagrams with these special multicast addresses
+      do not need to go further that one hop, routers does not forward these datagrams.)
+      Otherwise the TTL field is determined by the \fpar{defaultTimeToLive} or
+      \fpar{defaultMCTimeToLive} module parameters depending whether the destination
+      address is a multicast address or not.
+\item \fvar{dontFragment}: the \ttt{Don't Fragment} flag of the outgoing datagram (default is \fkeyword{false})
+\item \fvar{diffServCodePoint}: the \ttt{Type of Service} field of the outgoing datagram.
+      (ToS is called \ttt{diffServCodePoint} in \msgtype{IPv4Datagram} too.)
+\item \fvar{interfaceId}: id of outgoing interface (can be used to limit broadcast or restrict routing).
+\item \fvar{nextHopAddr}: explicit routing info, used by Manet DSR routing. If specified, then
+      \ttt{interfaceId} must also be specified. Ignored in Manet routing is disabled.
+\end{itemize}
+
+The IP module encapsulates the transport layer datagram into an \msgtype{IPv4Datagram}
+and fills in the header fields according to the control info. The \ttt{Identification}
+field is generated by incrementing a counter.
+
+The generated IP datagram is passed to the routing algorithm. The routing decides if the
+datagram should be delivered locally, or passed to one of the network interfaces
+with a specified next hop address, or broadcasted on one or all of the network interfaces.
+The details of the routing is described in the next subsection (\ref{subsec:ip_routing})
+in detail.
+
+Before sending the datagram on a specific interface, the \nedtype{IPv4} module
+checks if the packet length is smaller than the \ttt{MTU} of the interface.
+If not, then the datagram is fragmented. When the \ttt{Don't Fragment} flag
+forbids fragmentation, an \ttt{Destination Unreachable} ICMP error is generated
+with the \ttt{Fragmentation Error (5)} error code.
+\begin{note}
+Each fragment will encapsulate the whole higher layer datagram, although the
+length of the IP datagram corresponds to the fragment length.
+\end{note}
+
+The fragments are sent to the \nedtype{ARP} module through the \ttt{queueOut} gate.
+The \nedtype{ARP} module forwards the datagram immediately to point-to-point interface
+cards. If the outgoing interface is a 802.x card, then before forwarding the datagram
+it performs address resolution to obtain the MAC address of the destination.
+
+% FIXME there is no fragmentation if the packet is delivered through a local interface (e.g. loopback).
+%       check if this is correct. (Loopback IF has an MTU too.)
+
+% fragmentAndSend()
+% FIXME: when a fragment is fragmented, then 'Fragment Offset' is not set correctly (starts from 0, instead of the fragment's Fragment Offset)
+% FIXME: 'Fragment Offset' should be measured in 8-byte offsets! Now it is handled in byte units (and serialized so) 
+% FIXME: TTL<=0 should be checked in fragmentAndSend() before fragmenting. (sendDatagramToOutput only called from fragmentAndSend())
+
+\subsubsection*{Receiving packets}
+
+The \nedtype{IPv4} module of hosts processes the datagrams received from the network
+in three steps:
+\begin{enumerate}
+  \item Reassemble fragments
+  \item Decapsulate the transport layer datagram
+  \item Dispatch the datagram to the appropriate transport protocol
+\end{enumerate}
+
+When a fragment received, it is added to the fragment buffer of the IP.
+If the fragment was the last fragment of a datagram, the processing of 
+the datagram continues with step 2. The fragment buffer stores the reception
+time of each fragment. Fragments older than \fpar{fragmentTimeout} are
+purged from the buffer. The default value of the timeout is 60s. The
+timeout is only checked when a fragment is received, and at least 10s
+elapsed since the last check.
+
+An \msgtype{IPv4ControlInfo} attached to the decapsulated transport layer packet.
+The control info contains fields copied from the IP header (source and destination
+address, protocol, TTL, ToS) as well as the interface id through it was received.
+The control info also stores the original IP datagram, because the transport
+layer might signal an ICMP error, and the ICMP packet must encapsulate the
+erronous IP datagram.
+\begin{note}
+IP datagrams containing a DSR packet are not decapsulated, the unchanged IP
+datagram is passed to the DSR module instead.
+\end{note}
+
+After decapsulation, the transport layer packet will be passed to the appropriate
+transport protocol. It must be connected to one of the \ttt{transportOut[]} gate.
+The \nedtype{IPv4} module finds the gate using the \ttt{protocol id}$\rightarrow$
+\ttt{gate index} mapping given in the \fpar{protocolMapping} string parameter.
+The value must be a comma separated list of ''<protocol\_id>:<gate\_index>'' items.
+For example the following line in the ini file maps TCP (6) to gate 0, UDP (17)
+to gate 1, ICMP (1) to gate 2, IGMP (2) to gate 3, and RVSP (46) to gate 4.
+\begin{inifile}
+**.ip.protocolMapping="6:0,17:1,1:2,2:3,46:4"
+\end{inifile}
+If the protocol of the received IP datagram is not mapped, or the gate
+is not connected, the datagram will be silently dropped.
+% FIXME should send DESTINATION_UNREACHABLE/PROTOCOL_UNREACHABLE
+% FIXME reassembleAndDeliver() checks that transport gate is connected, but handleReceivedICMP() does not check it
+
+Some protocols are handled differently:
+\begin{itemize}
+  \item \ttt{ICMP}: ICMP errors are delivered to the protocol
+        whose packet triggered the error. Only ICMP query
+        requests and responses are sent to the \nedtype{ICMP} module.
+  \item \ttt{IP}: sent through \ttt{preRoutingOut} gate. (bug!)
+  \item \ttt{DSR}: ??? (subsection about Manet routing?)
+\end{itemize}
+
+% FIXME reassembleAndDeliver(): packets with IP protocol are sent through 'preRoutingOut' gate,
+%       but there is no such gate in the IPv4 module. 
+
+
+\subsection{Routing, and interfacing with lower layers}
+\label{subsec:ip_routing}
+
+The output of the network interfaces are connected to the
+\ttt{queueIn} gates of the \nedtype{IPv4} module. The incoming
+packets are either IP datagrams or ARP responses. The IP datagrams
+are processed by the \nedtype{IPv4} module, the ARP
+responses are forwarded to the \nedtype{ARP}. 
+
+The \nedtype{IPv4} module first checks the error bit of the
+incoming IP datagrams. There is a $header length/packet length$
+probability that the IP header contains the error (assuming
+1~bit error). With this probability an ICMP \ttt{Parameter Problem}
+generated, and the datagram is dropped.
+
+% FIXME if IP datagram hasBitError(), but it is decided not be in the IP header,
+%       then the decapsulated packet should have the bit error.
+
+When the datagram does not contain error in the IP header,
+its \ttt{Time to Live} field is decremented and a routing decision
+is made. As a result of the routing the datagram is either
+delivered locally, or sent out one or more output interface.
+When it is sent out, the routing algorithm must compute the
+next hop of its route. The details are differ, depending on
+that the destination address is multicast address or not.
+
+When the datagram is decided to be sent up, it is processed
+as described in the previous subsection (Receiving packets).
+If it is decided to be sent out through some interface, it
+is actually sent to the \nedtype{ARP} module through the
+\ttt{queueOut} gate. An \msgtype{IPv4RoutingDecision} control
+info is attached to the outgoing packet, containing the
+outgoing interface id, and the IP address of the next hop.
+The \nedtype{ARP} module resolve the IP address to a hardware
+address if needed, and forwards the datagram to next hop.
+
+\subsubsection*{Unicast/broadcast routing}
+
+Datagrams having unicast or broadcast destination addresses are
+routed in the following steps:
+
+\begin{enumerate}
+  \item Process source routing options.
+  \item Deliver datagram locally. If the destination address is a local
+  address, the limited broadcast address (255.255.255.255), or a local
+  broadcast address, then it will be sent to the transport layer.
+  \item Drop packets received from the network when IP forwarding is disabled.
+  \item Route datagrams received from higher layer or network. There are
+  three cases:
+  \begin{enumerate}
+    \item The datagram comes from the transport layer and its destination is
+    the limited or a local broadcast address.
+    In this case the datagram is sent through the specified
+    broadcast interface. If the transport layer did not specify
+    the interface, then a copy of the datagram is sent through each interface
+    (except loopbacks).
+    (The \fpar{forceBroadcast} parameter must be \fkeyword{true} to enable this.) 
+    The next hop address will be 255.255.255.255, which is mapped to a link layer
+    broadcast address if the interface supports it. 
+    \item The datagram comes from the transport layer and the
+    transport protocol provided explicit routing (Manet routing).
+    If Manet routing is enabled, then the datagram will be sent
+    through the specified interface to the specified next hop.
+    If Manet routing is disabled or the next hop is not specified
+    (only the outgoing interface), then the datagram is sent through
+    that interface. If the specified interface is a broadcast interface,
+    then the next hop is computed by looking up the best route
+    from the routing table.
+    \item The datagram received from the network, or it comes from
+    the transport layer, but the outgoing interface is not specified.
+    In this case, the best route to the destination is looked up from the
+    routing table. The datagram forwarded to gateway of the
+    route or directly to the destination. If no route is found, then
+    a \ttt{Destination Unreachable} ICMP error is sent to the source of the
+    datagram.
+  \end{enumerate}
+\end{enumerate}
+
+% FIXME forceBroadcast branch is never reached (bug #366)
+% FIXME in forceBroadcast branch dataAux sould be passed to fragmentAndSend
+% FIXME local broadcasts from HL does not looped back, it is necessary because network cards do not receive the messages they send
+% FIXME when a broadcast message is locally delivered and its source address is unspecified,
+%       the destination address is copied to the source, before sending it up.
+%       But broadcast addresses are not allowed as source. (copy-paste bug?)
+
+\subsubsection*{Multicast routing}
+
+If the destination address of the datagram is a multicast address (category D address),
+then it is routed specially. The differences from normal routing rules are:
+\begin{itemize}
+  \item It can be delivered locally if the destination address
+  is in the multicast group of some interface.
+  \item The datagram is forwarded to each \emph{multicast route}
+  found in the routing table.
+\end{itemize}
+
+More specifically, the routing routine for multicast datagrams performs these steps:
+\begin{enumerate}
+  \item Discard packets that arrived at an interface that does not belong
+  to the best route to the source of the packet (i.e. did not arrived on the 
+  shortest path).
+  \item Discard incoming packets that can not be delivered locally and
+  can not be forwarded.
+  A non-local packet can not be forwarded if IP forwarding is disabled or the
+  destination is a link local multicast address (224.0.0.x).
+  \item Deliver the datagram locally. If the destination address of the
+  datagram belongs to a multicast group of any local interface, it is sent
+  up to the transport layer.
+  \item Forward the multicast datagram. If the packet comes from the
+  higher layer and its outgoing interface specified, then it is sent out
+  on the specified interface only (with next hop address = destitation address).
+  Otherwise a copy of the datagram is sent on each interface described by
+  multicast routes to the destination. In this case the next hop address will be
+  the gateway address of the route. If the original datagram is received
+  from the network, then it is not sent on the interface it arrived at.
+\end{enumerate}
+        
 
 \subsection{Parameters}
 
@@ -87,89 +398,57 @@ control info: \cppclass{IPv4ControlInfo}, \cppclass{IPv4RoutingDecision}
   \item \fpar{forceBroadcast}
 \end{itemize}
 
-% \subsection{Sending a packet over IP}
-% 
-% To send a packet over IP from a higher layer protocol, the module should
-% fill in an \cppclass{IPControlInfo} object, attach it to the packet with
-% \cppclass{cMessage}'s \ttt{setControlInfo()} method, the send it to the IP
-% module.
-% 
-% When IP sends up a packet to a higher layer protocol, it will also attach
-% an \cppclass{IPControlInfo} to the packet, with the source and destination
-% IP address, etc. of the IP datagram in which the packet arrived.
-% 
-% IP can serve several higher-layer protocols. When delivering packets to
-% them, the output gate is determined from the Protocol field in the IP
-% header. The protocol-to-gateindex mapping must be given in the
-% \ttt{protocolMapping} string parameter, in the following format:
-% 
-% \begin{verbatim}
-% protocolnumber:gateindex, protocolnumber:gateindex, ...
-% \end{verbatim}
-% 
-% The recommended setting is:
-% 
-% \begin{itemize}
-%   \item TCP (6) : 0
-%   \item UDP (17) : 1
-%   \item ICMP (1) : 2
-%   \item IGMP (2) : 3
-%   \item RSVP (46) : 4
-% \end{itemize}
-% 
-% That is, \ttt{protocolMapping} should be set to \ttt{"6:0,17:1,1:2,2:3,46:4"}.
+compile time options: WITH\_MANET, NEWFRAGMENT
 
-\subsection{Routing, and interfacing with lower layers}
+\subsection{Statistics}
 
-The routing table is stored in the module \nedtype{RoutingTable}. When a
-datagram needs to be routed, IP queries \nedtype{RoutingTable} for the
-output interface (or "port") and next hop address of the packet. This is
-done by directly calling C++ methods (such as
-\ttt{findBestMatchingRoute(destAddress)}) of \nedtype{RoutingTable}. No
-message exchange with \nedtype{RoutingTable} takes place.
+The \nedtype{IPv4} module does not write any statistics into files,
+but it has some statistical information that can be watched during
+the simulation in the gui environment.
+\begin{itemize}
+  \item \ttt{numForwarded}: number of forwarded datagrams, i.e. sent to one of the
+        interfaces (not broadcast), counted before fragmentation.
+  \item \ttt{numLocalDeliver}: number of datagrams locally delivered.
+        (Each fragment counted separately.)
+  \item \ttt{numMulticast}: number of routed multicast datagrams.
+  \item \ttt{numDropped} number of dropped packets.
+        Either because there is no any interface, the interface is not specified and
+        no \fpar{forceBroadcast}, or received from the network but IP forwarding disabled.
+  \item \ttt{numUnroutable}: number of unroutable datagrams, i.e. there is no
+        route to the destination. (But if outgoing interface is specified it is routed!)
+\end{itemize}
 
-A routed datagram will be sent to the \ttt{queueOut} gate with an
-\cppclass{IPRoutingDecision} control info object attached to it, which
-contains the next hop address and the output interface number.
-\ttt{queueOut} is expected to be connected to \nedtype{ARP}.
+In the graphical interface the bubble of the \nedtype{IPv4} module
+also displays these counters.
 
-Routing protocol implementations can query and manipulate the route table
-by calling \nedtype{RoutingTable}'s C++ methods.
-
-% \subsection{Performance model, QoS}
-% 
-% In the current form, IP contains a FIFO which queues up IP datagrams;
-% datagrams are processed in order. The processing time is determined by the
-% \ttt{procDelay} module parameter.
-% 
-% The current performance model comes from the \cppclass{QueueBase} C++ base
-% class. If you need a more sophisticated performance model, you may change
-% the module implementation (the IP class), and: (1) override the
-% startService() method which determines processing time for a packet, or (2)
-% use a different base class.
 
 \section{The RoutingTable module}
 
-The \nedtype{RoutingTable} module does not have any connections,
-it is accessed by direct method calls instead.
+The \nedtype{RoutingTable} module represents the routing table.
+This object has one instance per host or router. It has methods to manage
+the route table and the interface table,
+so one can achieve functionality similar to the \fprog{route} and
+\fprog{ifconfig} commands.
 
-The routing table is modified by routing algorithms (FlatNetworkConfigurator, OSPF, Manet, bgpv4).
-Static routes can be described by a text file. Read in stage 1.
+This is a simple module without gates, it requires function calls to it
+(message handling does nothing). Methods are provided for reading and
+updating the interface table and the route table, as well as for unicast
+and multicast routing.
 
-The routing table queried by the \nedtype{IP} module for routing decisions.
+Interfaces are dynamically registered: at the start of the simulation,
+every L2 module adds its own interface entry to the table.
 
-Methods:
+The route table is read from a file; the file can
+also fill in or overwrite interface settings. The route table can also
+be read and modified during simulation, typically by routing protocol
+implementations (e.g. OSPF).
 
-\begin{itemize}
-  \item \ffunc{getInterfaceForDestAddress}
-  \item \ffunc{getGatewayForDestAddress}
-  \item \ffunc{findBestMatchingRoutes}
-  \item \ffunc{getMulticastRoutesFor}
-\end{itemize}
+Entries in the route table are represented by \cppclass{IPv4Route} objects.
+\cppclass{IPv4Route} objects can be polymorphic: if a routing protocol needs
+to store additional data, it can simply subclass from \cppclass{IPv4Route},
+and add the derived object to the table.
 
-% addRoute/deleteRoute
-
-Parameters:
+The \nedtype{RoutingTable} module has the following parameters:
 
 \begin{itemize}
   \item \fpar{routerId}: for routers, the router id using IPv4 address dotted notation;
@@ -178,6 +457,15 @@ Parameters:
   \item \fpar{IPForward}: turns IP forwarding on/off
   \item \fpar{routingFile}: routing table file name
 \end{itemize}
+
+% FIXME RoutingTable::invalidateCache() should clear localBroadcastAddresses.
+% RoutingTable::findBestMatchingRoute() should search in this order:
+%          1. host routes (exact match)
+%          2. network routes (longest match)
+%          3. default routes (round robin)
+%   It is ok, if host routes has 255.255.255.255 netmask, and default has 0.0.0.0 netmask.
+% FIXME RoutingTable::findBestMatchingRoute() if(...MANET...) branch always set bestRoute to NULL,
+%       because if there were exact match, it would have been choosen in the previous loop.
 
 \subsection{The IP routing files}
 
@@ -251,10 +539,10 @@ Accepted interface fields are:
 The following fields are parsed but ignored: \ttt{Bcast},\ttt{encap},
 \ttt{HWaddr}.
 
-Interface modules set a good default for MTU, Metric (as 2e9/bitrate) and
-flags, but leave inet\_addr and Mask empty. inet\_addr and mask should
-be set either from the routing file or by a dynamic network configuration
-module.
+Interface modules set a good default for MTU, Metric (as $2*10^9$/bitrate) and
+flags, but leave \fvar{inet\_addr} and \fvar{Mask} empty. \fvar{inet\_addr} and
+\fvar{mask} should be set either from the routing file or by a dynamic network
+configuration module.
 
 The route fields are:
 
@@ -262,21 +550,23 @@ The route fields are:
 Destination  Gateway  Netmask  Flags  Metric Interface
 \end{verbatim}
 
-\textit{Destination}, \textit{Gateway} and \textit{Netmask} have the usual meaning.
-The \textit{Destination} field should either be an IP address or "default:"
-(to designate the default route). For \textit{Gateway}, \ttt{*} is also
+\fvar{Destination}, \fvar{Gateway} and \fvar{Netmask} have the usual meaning.
+The \fvar{Destination} field should either be an IP address or ``default''
+(to designate the default route). For \fvar{Gateway}, \ttt{*} is also
 accepted with the meaning \ttt{0.0.0.0}.
 
-\textit{Flags} denotes route type:
+\fvar{Flags} denotes route type:
 
 \begin{itemize}
-  \item \textit{H} "host": direct route (directly attached to the router), and
-  \item \textit{G} "gateway": remote route (reached through another router)
+  \item \textit{H} ``host'': direct route (directly attached to the router), and
+  \item \textit{G} ``gateway'': remote route (reached through another router)
 \end{itemize}
 
-\textit{Interface} is the interface name, e.g. \ttt{eth0}.
+\fvar{Interface} is the interface name, e.g. \ttt{eth0}.
 
-
+% FIXME 'H' and 'G' flags should be independent. Now they excludes each other, the parser sets route.type to the last one.
+%       H = host/network
+%       G = indirect/direct
 
 \section{The ICMP module}
 
@@ -313,6 +603,14 @@ triggered the error, or the data of the ping request/reply.
 %            TIMESTAMP_REQUEST, TIMESTAMP_REPLY: Identifier, Sequence Number, Originate Timestamp, Receive Timestamp, Transmit Timestamp
 
 % FIXME wrong type codes for ICMP_DESTINATION_UNREACHABLE (3), ICMP_ECHO_REQUEST (8), ICMP_ECHO_REPLY (0), ICMP_TIMESTAMP_REQUEST (13), ICMP_TIMESTAMP_REPLY (14)
+
+% FIXME ICMP error should not be send if the original datagram
+%         1. is an ICMP error
+%         2. was sent to a broadcast or multicast address
+%         3. datagram was sent with a link-layer broadcast
+%         4. a fragment other than the first
+%         5. a datagram whose source address is 0.0.0.0, 127.*.*.*, broadcast or multicast address
+%      currently only the 1. and half of 2. checked
 
 The \nedtype{ICMP} module has two methods which can be used by other modules
 to send ICMP error messages:
@@ -492,10 +790,48 @@ These signals are recorded as vectors and their counts as scalars.
 
 \section{The NetworkLayer module}
 
-compound module: IP, ICMP, ErrorHandling, IGMP, ARP
+The \nedtype{NetworkLayer} module packs the \nedtype{IP}, \nedtype{ICMP},
+\nedtype{ARP}, and \nedtype{IGMP} modules into one compound module.
+The compound module defines gates for connecting UDP, TCP, SCTP, RSVP and
+OSPF transport protocols. The \ttt{pingIn} and \ttt{pingOut} gates of the
+\nedtype{ICMP} module are also available, while its \ttt{errorOut} gate
+is connected to an inner \nedtype{ErrorHandling} component that writes
+the ICMP errors to the log.
+
+The component can be used in hosts and routers to support IPv4.
+
+\section{The NetworkInfo module}
+
+The \nedtype{NetworkInfo} module can be used to dump detailed information
+about the network layer. This module does not send or received messages,
+it is invoked by the \nedtype{ScenarioManager} instead. For example
+the following \nedtype{ScenarioManager} script dump the routing table
+of the \ttt{LSR2} module at simulation time $t=2$ into \ffilename{LSR2\_002.txt}:
+\begin{filelisting}
+<scenario>
+  <at t="2">
+    <routing module="NetworkInfo" target="LSR2" file="LSR2_002.txt"/>
+  </at>
+</scenario>
+\end{filelisting}
+
+The module currently support only the \ttt{routing} command which dumps
+the routing table. The command has four parameters given as XML attributes:
+\begin{itemize}
+  \item \ttt{target} the name of the node that owns the routing table to be dumped
+  \item \ttt{filename} the name of the file the output is directed to
+  \item \ttt{mode} if set to ``a'', the output is appended to the file,
+                   otherwise the target is truncated if the file existed
+  \item \ttt{compat} if set to ``linux'', then the output is generated
+                     in the format of the \ttt{route -n} command of Linux.
+                     The output is sorted only if \ttt{compat} is
+                     \fkeyword{true}.
+\end{itemize}
 
 \section{Applications}
 
+The applications described in this section uses the services of the network
+layer only, they do not need transport layer protocols.
 They can be used with both IPv4 and IPv6.
 
 \subsection{IP traffic generators}

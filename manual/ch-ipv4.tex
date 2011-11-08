@@ -446,7 +446,34 @@ implementations (e.g. OSPF).
 Entries in the route table are represented by \cppclass{IPv4Route} objects.
 \cppclass{IPv4Route} objects can be polymorphic: if a routing protocol needs
 to store additional data, it can simply subclass from \cppclass{IPv4Route},
-and add the derived object to the table.
+and add the derived object to the table. The \cppclass{IPv4Route} object
+has the following fields:
+\begin{itemize}
+  \item \ttt{host} is the IP address of the target of the route (can be a host or network).
+                   When an entry searched for a given destination address, the destination
+                   address is compared with this \ttt{host} address using the \ttt{netmask}
+                   below, and the longest match wins.
+  \item \ttt{netmask} used when comparing \ttt{host} with the detination address.
+                     It is 0.0.0.0 for the default route, 255.255.255.255 for
+                     host routes (exact match), or the network or subnet mask
+                     for network routes.
+  \item \ttt{gateway} is the IP address of the gateway for indirect routes, or
+                      0.0.0.0 for direct routes. Note that 0.0.0.0 can be used
+                      even if the destination is not directly connected to this
+                      node, but can be found using proxy ARP. 
+  \item \ttt{interface} the outgoing interface to be used with this route.
+  \item \ttt{type} \ttt{DIRECT} or \ttt{REMOTE}. For direct routes, the next hop
+                   address is the destination address, for remote routes it is
+                   the gateway address.
+  \item \ttt{source} \ttt{MANUAL}, \ttt{IFACENETMASK}, \ttt{RIP}, \ttt{OSPF},
+        \ttt{BGP}, \ttt{ZEBRA}, \ttt{MANET}, or \ttt{MANET2}. \ttt{MANUAL} means
+        that the route was added by a routing file, or a network configurator.
+        \ttt{IFACENETMASK} routes are added for each interface of the node.
+        Other values means that the route is managed by the specific routing
+        daemon.
+  \item \ttt{metric} the ``cost'' of the route. Currently not used when choosing
+                     the best route.
+\end{itemize}
 
 The \nedtype{RoutingTable} module has the following parameters:
 
@@ -454,7 +481,9 @@ The \nedtype{RoutingTable} module has the following parameters:
   \item \fpar{routerId}: for routers, the router id using IPv4 address dotted notation;
         specify ``auto'' to select the highest interface address; should be left empty ``''
         for hosts
-  \item \fpar{IPForward}: turns IP forwarding on/off
+  \item \fpar{IPForward}: turns IP forwarding on/off (It is always \fkeyword{true}
+                          in a \nedtype{Router} and is \fkeyword{false} by default
+                          in a \nedtype{StandardHost}.)
   \item \fpar{routingFile}: routing table file name
 \end{itemize}
 
@@ -567,6 +596,62 @@ accepted with the meaning \ttt{0.0.0.0}.
 % FIXME 'H' and 'G' flags should be independent. Now they excludes each other, the parser sets route.type to the last one.
 %       H = host/network
 %       G = indirect/direct
+
+\subsection{Network configurators}
+
+Configuring a large network with routing files can be a tedious task.
+INET contains a module (called \nedtype{FlatNetworkConfigurator})
+for automatically assigning IP addresses and filling the routing tables
+of the IP nodes of a network. Add this module to the top level
+of the network, and it will do the work when initialized. Do not
+specify any routing file, or leave them empty, because they can
+interfere with the configurator.
+
+The \nedtype{FlatNetworkConfigurator} searches each IP nodes of the network.
+(IP nodes are those modules that have the @node NED property and
+has a \nedtype{RoutingTable} submodule named ``routingTable'').
+The configurator then assigns IP addresses to the IP nodes, controlled
+by the following module parameters:
+\begin{itemize}
+  \item \fpar{netmask} common netmask of the addresses (default is 255.255.0.0)
+  \item \fpar{networkAddress} higher bits are the network part of the addresses,
+        lower bits should be 0. (default is 192.168.0.0)
+\end{itemize}
+
+With the default parameters the assigned addresses are in the range
+192.168.0.1 - 192.168.255.254, so there can be maximum 65534 nodes in the
+network. The netmask of the assigned IP addresses will be 255.255.255.255,
+therefore each node is a subnet in itself; there are no subnet directed
+broadcast addresses. The same IP address will be assigned to each interface
+of the node, except the loopback interface which always has address 127.0.0.1
+(with 255.0.0.0 mask).
+
+After assigning the IP addresses, the configurator fills in the routing tables.
+There are two kind of routes:
+\begin{itemize}
+  \item default routes: for nodes that has only one non-loopback interface
+        a route is added that matches with any destination address
+        (the entry has 0.0.0.0 \ttt{host} and \ttt{netmask} fields).
+        These are remote routes, but the gateway address is left unspecified.
+        The delivery of the datagrams rely on the proxy ARP feature of the
+        routers. 
+  \item direct routes following the shortest paths: for nodes that has more
+        than one non-loopback interface a separate route is added to each
+        IP node of the network. The outgoing interface is chosen by the
+        shortest path to the target node. These routes are
+        added as direct routes, even if there is no direct link with the
+        destination. In this case proxy ARP is needed to deliver the datagrams.
+\end{itemize}
+
+% FIXME shortest path calculation should exclude the nodes where IPForward is disabled.
+%       If the shortest path leads to a multihomed node in which IPForward is false, each datagram will be dropped.
+
+% FIXME weird FlatNetworkConfigurator behaviour.
+%       Assigned IP addresses does not mirror the hierachy of networks (e.g. each node in an Ethernet LAN handled as a one-element subnet).
+%       No gateway address is set in the routes, delivery relies on proxy ARPing.
+%       Direct routes created to each node, even if there is no direct link to it.
+%       Different interfaces of a node should have different IP address.
+%       Broadcast capable interfaces should have a real netmast (not 255.255.255.255) to support subnet directed IP broadcasts.
 
 \section{The ICMP module}
 

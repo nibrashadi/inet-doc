@@ -6,29 +6,69 @@
 
 \section{Overview}
 
-routing: hosts, routers
+The IP protocol is the workhorse protocol of the TCP/IP protocol suite.
+All UDP, TCP, ICMP packets are encapsulated into IP datagrams and
+transported by the IP layer.
+While higher layer protocols transfer data among two communication end-point,
+the IP layer provides an hop-by-hop, unreliable and connectionless delivery
+service. IP does not maintain any state information about the individual
+datagrams, each datagram handled independently.
 
-fragmentation
+The nodes that are connected to the Internet can be either a host or a router.
+The hosts can send and recieve IP datagrams, and their operating system
+implements the full TCP/IP stack including the transport layer. On the
+other hand, routers have more than one interface cards and perform packet
+routing between the connected networks. Routers does not need the
+transport layer, they work on the IP level only. The division
+between routers and hosts is not strict, because if a host
+have several interfaces, they can usually be configured to operate
+as a router too.
 
-options
+Each node on the Internet has a unique IP address. IP datagrams contain
+the IP address of the destination. The task of the routers is to find
+out the IP address of the next hop on the local network, and forward
+the packet to it. Sometimes the datagram is larger, than the maximum
+datagram that can be sent on the link (e.g. Ethernet has an 1500 bytes limit.).
+In this case the datagram is split into fragments and each fragment is
+transmitted independently. The destination host must collect all fragments,
+and assemble the datagram, before sending up the data to the transport
+layer.
 
-\subsection{Implemented standards}
+\subsection{INET modules}
 
+The INET framework contains several modules to build the
+IPv4 network layer of hosts and routers:
+\begin{itemize}
+  \item \nedtype{IPv4} is the main module that implements RFC791. This
+        module performs IP encapsulation/decapsulation, fragmentation
+        and assembly, and routing of IP datagrams.
+  \item The \nedtype{RoutingTable} is a helper module that manages the routing
+        table of the node. It is queried by the \nedtype{IPv4} module
+        for best routes, and updated by the routing daemons implementing
+        RIP, OSPF, Manet, etc. protocols.
+  \item The \nedtype{ICMP} module can be used to generate ICMP error packets. It also
+        supports ICMP echo applications.
+  \item The \nedtype{ARP} module performs the dynamic translation of IP addresses
+        to MAC addresses. 
+\end{itemize}
+
+These modules are assembled into a complete network layer module
+called \nedtype{NetworkLayer}. This module has
+dedicated gates for TCP, UDP, SCTP, RSVP, OSPF, Manet, and Ping
+higher layer protocols. It can be connected to several network
+interface cards: Ethernet, PPP, Wlan, or external interfaces.
+The \nedtype{NetworkLayer} module is used to build IPv4 hosts
+(\nedtype{StandardHost}) and routers (\nedtype{Router}).
+
+The implementation of these modules are based on the following RFCs:
 \begin{itemize}
   \item RFC791: Internet Protocol
   \item RFC792: Internet Control Message Protocol
   \item RFC826: Address Resolution Protocol
-  \item RFC903: A Reverse Address Resolution Protocol
   \item RFC1122: Requirements for Internet Hosts - Communication Layers
-%  \item RFC1868: ARP Extension -- UNARP
 \end{itemize}
 
-
-\subsection{INET modules}
-
-TODO list the modules: IP, ICMP, RoutingTable, etc.
-
-
+The subsequent sections describe the IPv4 modules in detail.
 
 \section{The IPv4 Module}
 
@@ -43,21 +83,28 @@ directly from the network interface cards through the
 \emph{queueIn[]} gates. Each interface card knows its own
 network layer gate index.
 
-% \subsection{Performance model, QoS}
-% 
-% In the current form, IP contains a FIFO which queues up IP datagrams;
-% datagrams are processed in order. The processing time is determined by the
-% \ttt{procDelay} module parameter.
-% 
-% The current performance model comes from the \cppclass{QueueBase} C++ base
-% class. If you need a more sophisticated performance model, you may change
-% the module implementation (the IP class), and: (1) override the
-% startService() method which determines processing time for a packet, or (2)
-% use a different base class.
+The C++ class of the \nedtype{IPv4} module is derived from \cppclass{QueueBase}.
+There is a processing time associated with each incoming packet.
+This processing time is specified by the \fpar{procDelay} module parameter.
+If a packet arrives, when the processing of a previous has not been
+finished, it is placed in a FIFO queue.
+
+The current performance model assumes that each datagram is processed
+within the same time, and there is no priority between the datagrams.
+If you need a more sophisticated performance model, you may change
+the module implementation (the IP class), and:
+\begin{enumerate}
+  \item override the \ffunc{startService()} method which determines processing
+        time for a packet, or
+  \item use a different base class.
+\end{enumerate}
 
 \subsection{IP packets}
 
-IP packets, IP header
+IP datagrams start with a variable length IP header.
+The minimum length of the header is 20 bytes, and
+it can contain at most 40 bytes for options, so
+the maximum length of the IP header is 60 bytes.
 
 \begin{center}
 \begin{bytefield}{32}
@@ -389,16 +436,21 @@ More specifically, the routing routine for multicast datagrams performs these st
 
 \subsection{Parameters}
 
+The \nedtype{IPv4} module has the following parameters:
 \begin{itemize}
-  \item \fpar{procDelay}
-  \item \fpar{timeToLive}
-  \item \fpar{multicastTimeToLive}
-  \item \fpar{protocolMapping}
-  \item \fpar{fragmentTimeout}
-  \item \fpar{forceBroadcast}
+  \item \fpar{procDelay} processing time of each incoming datagram.
+  \item \fpar{timeToLive} default TTL of unicast datagrams.
+  \item \fpar{multicastTimeToLive} default TTL of multicast datagrams.
+  \item \fpar{protocolMapping} string value containing the \ttt{protocol id}
+        $\rightarrow$ \ttt{gate index} mapping, e.g. \ttt{``6:0,17:1,1:2,2:3,46:4''}.
+  \item \fpar{fragmentTimeout} the maximum duration until fragments are kept
+          in the fragment buffer.
+  \item \fpar{forceBroadcast} if \fkeyword{true}, then link-local broadcast
+          datagrams are sent out through each interface, if the higher
+          layer did not specify the outgoing interface.
 \end{itemize}
 
-compile time options: WITH\_MANET, NEWFRAGMENT
+% compile time options: WITH\_MANET, NEWFRAGMENT
 
 \subsection{Statistics}
 
@@ -425,8 +477,8 @@ also displays these counters.
 \section{The RoutingTable module}
 
 The \nedtype{RoutingTable} module represents the routing table.
-This object has one instance per host or router. It has methods to manage
-the route table and the interface table,
+IP hosts and routers contain one instance of this class. It has
+methods to manage the routing table and the interface table,
 so one can achieve functionality similar to the \fprog{route} and
 \fprog{ifconfig} commands.
 

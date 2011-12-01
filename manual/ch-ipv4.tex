@@ -251,13 +251,13 @@ The \nedtype{ARP} module forwards the datagram immediately to point-to-point int
 cards. If the outgoing interface is a 802.x card, then before forwarding the datagram
 it performs address resolution to obtain the MAC address of the destination.
 
-% FIXME there is no fragmentation if the packet is delivered through a local interface (e.g. loopback).
+% FIXME (#459) there is no fragmentation if the packet is delivered through a local interface (e.g. loopback).
 %       check if this is correct. (Loopback IF has an MTU too.)
 
-% fragmentAndSend()
+% fragmentAndSend() (#425)
 % FIXME: when a fragment is fragmented, then 'Fragment Offset' is not set correctly (starts from 0, instead of the fragment's Fragment Offset)
 % FIXME: 'Fragment Offset' should be measured in 8-byte offsets! Now it is handled in byte units (and serialized so) 
-% FIXME: TTL<=0 should be checked in fragmentAndSend() before fragmenting. (sendDatagramToOutput only called from fragmentAndSend())
+% FIXME: (#461) TTL<=0 should be checked in fragmentAndSend() before fragmenting. (sendDatagramToOutput only called from fragmentAndSend())
 
 \subsubsection*{Receiving packets}
 
@@ -300,7 +300,7 @@ to gate 1, ICMP (1) to gate 2, IGMP (2) to gate 3, and RVSP (46) to gate 4.
 \end{inifile}
 If the protocol of the received IP datagram is not mapped, or the gate
 is not connected, the datagram will be silently dropped.
-% FIXME should send DESTINATION_UNREACHABLE/PROTOCOL_UNREACHABLE
+% FIXME (#463) should send DESTINATION_UNREACHABLE/PROTOCOL_UNREACHABLE
 % FIXME reassembleAndDeliver() checks that transport gate is connected, but handleReceivedICMP() does not check it
 
 Some protocols are handled differently:
@@ -312,7 +312,7 @@ Some protocols are handled differently:
   \item \ttt{DSR}: ??? (subsection about Manet routing?)
 \end{itemize}
 
-% FIXME reassembleAndDeliver(): packets with IP protocol are sent through 'preRoutingOut' gate,
+% FIXME (#462) reassembleAndDeliver(): packets with IP protocol are sent through 'preRoutingOut' gate,
 %       but there is no such gate in the IPv4 module. 
 
 
@@ -331,7 +331,7 @@ probability that the IP header contains the error (assuming
 1~bit error). With this probability an ICMP \ttt{Parameter Problem}
 generated, and the datagram is dropped.
 
-% FIXME if IP datagram hasBitError(), but it is decided not be in the IP header,
+% FIXME (#466) if IP datagram hasBitError(), but it is decided not be in the IP header,
 %       then the decapsulated packet should have the bit error.
 
 When the datagram does not contain error in the IP header,
@@ -396,8 +396,8 @@ routed in the following steps:
 
 % FIXME forceBroadcast branch is never reached (bug #366)
 % FIXME in forceBroadcast branch dataAux sould be passed to fragmentAndSend
-% FIXME local broadcasts from HL does not looped back, it is necessary because network cards do not receive the messages they send
-% FIXME when a broadcast message is locally delivered and its source address is unspecified,
+% FIXME (#458) local broadcasts from HL does not looped back, it is necessary because network cards do not receive the messages they send
+% FIXME (#457) when a broadcast message is locally delivered and its source address is unspecified,
 %       the destination address is copied to the source, before sending it up.
 %       But broadcast addresses are not allowed as source. (copy-paste bug?)
 
@@ -539,7 +539,7 @@ The \nedtype{RoutingTable} module has the following parameters:
   \item \fpar{routingFile}: routing table file name
 \end{itemize}
 
-% FIXME RoutingTable::invalidateCache() should clear localBroadcastAddresses.
+% FIXME (#467) RoutingTable::invalidateCache() should clear localBroadcastAddresses.
 % RoutingTable::findBestMatchingRoute() should search in this order:
 %          1. host routes (exact match)
 %          2. network routes (longest match)
@@ -695,7 +695,7 @@ There are two kind of routes:
         destination. In this case proxy ARP is needed to deliver the datagrams.
 \end{itemize}
 
-% FIXME shortest path calculation should exclude the nodes where IPForward is disabled.
+% FIXME (#465) shortest path calculation should exclude the nodes where IPForward is disabled.
 %       If the shortest path leads to a multihomed node in which IPForward is false, each datagram will be dropped.
 
 % FIXME weird FlatNetworkConfigurator behaviour.
@@ -740,6 +740,9 @@ triggered the error, or the data of the ping request/reply.
 %            TIMESTAMP_REQUEST, TIMESTAMP_REPLY: Identifier, Sequence Number, Originate Timestamp, Receive Timestamp, Transmit Timestamp
 
 % FIXME wrong type codes for ICMP_DESTINATION_UNREACHABLE (3), ICMP_ECHO_REQUEST (8), ICMP_ECHO_REPLY (0), ICMP_TIMESTAMP_REQUEST (13), ICMP_TIMESTAMP_REPLY (14)
+
+% FIXME ICMP header serializer handles only ICMP_ECHO_REQUEST, ICMP_ECHO_REPLY, ICMP_DESTINATION_UNREACHABLE, ICMP_TIME_EXCEEDED
+%       ICMP header deserializer handles only ICMP_ECHO_REQUEST, ICMP_ECHO_REPLY
 
 % FIXME ICMP error should not be send if the original datagram
 %         1. is an ICMP error
@@ -897,7 +900,7 @@ entry is not used after the configured \fpar{cacheTimeout}
 elapsed. This parameter does not affect the entries of
 the global cache however.
 
-% FIXME why the global cache is cleared when an ARP module is deleted?
+% FIXME (#469) why the global cache is cleared when an ARP module is deleted?
 
 The module parameters of \nedtype{ARP} are:
 
@@ -989,7 +992,7 @@ The \nedtype{IPvXTrafGen} sends messages with length \fpar{packetLength}.
 The sent packet is emitted in the \fsignal{sentPk} signal.
 The length of the sent packets can be recorded as scalars and vectors.
 
-% FIXME packetLength declared as volatile, but in fact it is not.
+% FIXME (#468) packetLength declared as volatile, but in fact it is not.
 
 The \nedtype{IPvXTrafSink} can be used as a receiver of the packets
 generated by the traffic generator. This module emits the packet

@@ -49,7 +49,9 @@ IPv4 network layer of hosts and routers:
   \item The \nedtype{ICMP} module can be used to generate ICMP error packets. It also
         supports ICMP echo applications.
   \item The \nedtype{ARP} module performs the dynamic translation of IP addresses
-        to MAC addresses. 
+        to MAC addresses.
+  \item The \nedtype{IGMPv2} module to generate and process multicast group
+        membership reports.
 \end{itemize}
 
 These modules are assembled into a complete network layer module
@@ -66,6 +68,7 @@ The implementation of these modules are based on the following RFCs:
   \item RFC792: Internet Control Message Protocol
   \item RFC826: Address Resolution Protocol
   \item RFC1122: Requirements for Internet Hosts - Communication Layers
+  \item RFC2236: Internet Group Management Protocol, Version 2
 \end{itemize}
 
 The subsequent sections describe the IPv4 modules in detail.
@@ -927,6 +930,141 @@ These signals are recorded as vectors and their counts as scalars.
 
 \section{The IGMP module}
 
+The IGMP module is responsible for distributing the information of
+multicast group memberships from hosts to routers. When an interface
+of a host joins to a multicast group, it will send an IGMP report
+on that interface to routers. It can also send reports when the
+interface leaves the multicast group, so it does not want to
+receive those multicast datagrams. The IGMP module of multicast
+routers processes these IGMP reports: it updates the list of
+groups, that has members on the link of the incoming message.
+
+The \nedtype{IIGMP} module interface defines the connections
+of IGMP modules.
+IGMP reports are transmitted by IP, so the module contains
+gates to be connected to the IP module (\ttt{ipIn/ipOut}). The IP
+module delivers packets with protocol number 2 to the IGMP module.
+However some multicast routing protocols (like DVMRP) also exchange
+routing information by sending IGMP messages, so they should be
+connected to the \ttt{routerIn/routerOut} gates of the IGMP module.
+The IGMP module delivers the IGMP messages not processed by itself
+to the connected routing module.
+
+The \nedtype{IGMPv2} module implements version 2 of the IGMP protocol
+(RFC 2236). Next we describe its behaviour in host and routers in details.
+Note that multicast routers behaves as hosts too, i.e. they are sending
+reports to other routers when joining or leaving a multicast group.
+
+\subsection{Host behaviour}
+
+When an interface joins to a multicast group, the host
+will send a Membership Report immediately to the group address.
+This report is repeated after \fpar{unsolicetedReportInterval} to
+cover the possibility of the first report being lost.
+
+When a host's interface leaves a multicast group, and it was
+the last host that sent a Membership Report for that group,
+it will send a Leave Group message to the all-routers multicast
+group (224.0.0.2).
+
+This module also responds to IGMP Queries. When the host
+receives a Group-Specific Query on an interface that belongs
+to that group, then it will set a timer to a random value
+between 0 and Max Response Time of the Query. If the timer
+expires before the host observe a Membership Report sent
+by other hosts, then the host sends an IGMPv2 Membership Report.
+When the host receives a General Query on an interface,
+a timer is initialized and a report is sent for each group
+membership of the interface.
+
+\subsection{Router behaviour}
+
+Multicast routers maintains a list for each interface containing
+the multicast groups that have listeners on that interface.
+This list is updated when IGMP Membership Reports and Leave Group
+messages arrive, or when a timer expires since the last Query.
+
+When multiple routers are connected to the same link, the one with
+the smallest IP address will be the Querier. When other routers
+observe that they are Non-Queriers (by receiving an IGMP Query
+with a lower source address), they stop sending IGMP Queries
+until \fpar{otherQuerierPresentInterval} elapsed since the last
+received query.
+
+Routers periodically (\fpar{queryInterval}) send a General Query
+on each attached network for which this router is a Querier.
+On startup the router sends \fpar{startupQueryCount} queries
+separated by \fpar{startupQueryInterval}. A General Query
+has unspecified Group Address field, a Max Response Time
+field set to \fpar{queryResponseInterval}, and is sent to the
+all-systems multicast address (224.0.0.1).
+
+When a router receives a Membership Report, it will add the
+reported group to the list of multicast group memberships.
+At the same time it will set a timer for the membership
+to \fpar{groupMembershipInterval}. Repeated reports restart
+the timer. If the timer expires, the router assumes
+that the group has no local members, and multicast traffic
+is no more forwarded to that interface.
+
+When a Querier receives a Leave Group message for a group,
+it sends a Group-Specific Query to the group being left.
+It repeats the Query \fpar{lastMemberQueryCount} times in
+separated by \fpar{lastMemberQueryInterval} until a Membership
+Report is received. If no Report received, then the router
+assumes that the group has no local members.
+
+% FIXME IGMPv2 not compatible with IGMPv1 hosts and routers
+
+\subsection{Disabling IGMP}
+
+The IPv4 \nedtype{NetworkLayer} contains an instance of the IGMP
+module. IGMP can be turned off by setting the \fpar{enabled}
+parameter to false. When disabled, then no IGMP message
+is generated, and incoming IGMP messages are ignored.
+
+\subsection{Parameters}
+
+The following parameters has effects in both hosts and routers:
+
+\begin{itemize}
+  \item \fpar{enabled} if \fkeyword{false} then the IGMP module is silent. Default is \fkeyword{true}.
+\end{itemize}
+
+These parameters are only used in hosts:
+
+\begin{itemize}
+  \item \fpar{unsolicitedReportInterval} the time between repetitions of a
+   host's initial report of membership in a group. Default is 10s.
+\end{itemize}
+
+Router timeouts are configured by these parameters:
+
+\begin{itemize}
+  \item \fpar{robustnessVariable} the IGMP is robust to \fpar{robustnessVariable}-1
+   packet losses. Default is 2.
+  \item \fpar{queryInterval} the interval between General Queries sent by a Querier.
+   Default is 125s.
+  \item \fpar{queryResponseInterval} the Max Response Time inserted into General Queries
+  \item \fpar{groupMembershipInterval} the amount of time that must pass before
+   a multicast router decides there are no more members of a group on a network.
+   Fixed to \fpar{robustnessVariable} * \fpar{queryInterval} + \fpar{queryResponseInterval}.
+  \item \fpar{otherQuerierPresentInterval} the length of time that must
+   pass before a multicast router decides that there is no longer
+   another multicast router which should be the querier.
+   Fixed to \fpar{robustnessVariable} * \fpar{queryInterval} + \fpar{queryResponseInterval} / 2.
+  \item \fpar{startupQueryInterval} the interval between General Queries
+   sent by a Querier on startup. Default is \fpar{queryInterval} / 4.
+  \item \fpar{startupQueryCount} the number of Queries sent out on startup,
+   separated by the \fpar{startupQueryInterval}. Default is \fpar{robustnessVariable}.
+  \item \fpar{lastMemberQueryInterval} the Max Response Time inserted into
+   Group-Specific Queries sent in response to Leave Group messages, and
+   is also the amount of time between Group-Specific Query messages.
+   Default is 1s.
+  \item \fpar{lastMemberQueryCount} the number of Group-Specific Queries
+   sent before the router assumes there are no local members.
+   Default is \fpar{robustnessVariable}.
+\end{itemize}
 
 \section{The NetworkLayer module}
 

@@ -1,4 +1,4 @@
-% based on 'integration' branch: a4af10cd976d27c3af546230f4e27e3688cf29ad
+% based on 'integration' branch: 446a1265c28822456bc0230d362bbabdee7778ba (2012-03-19)
 
 \chapter{IPv4}
 \label{cha:ipv4}
@@ -224,6 +224,8 @@ Optionally the following fields can be set too:
 \item \fvar{dontFragment}: the \ttt{Don't Fragment} flag of the outgoing datagram (default is \fkeyword{false})
 \item \fvar{diffServCodePoint}: the \ttt{Type of Service} field of the outgoing datagram.
       (ToS is called \ttt{diffServCodePoint} in \msgtype{IPv4Datagram} too.)
+\item \fvar{multicastLoop}: if \fkeyword{true}, then a copy of the multicast datagrams
+      are sent to the loopback interface, so applications on the same host can receive it.
 \item \fvar{interfaceId}: id of outgoing interface (can be used to limit broadcast or restrict routing).
 \item \fvar{nextHopAddr}: explicit routing info, used by Manet DSR routing. If specified, then
       \ttt{interfaceId} must also be specified. Ignored in Manet routing is disabled.
@@ -253,14 +255,6 @@ The fragments are sent to the \nedtype{ARP} module through the \ttt{queueOut} ga
 The \nedtype{ARP} module forwards the datagram immediately to point-to-point interface
 cards. If the outgoing interface is a 802.x card, then before forwarding the datagram
 it performs address resolution to obtain the MAC address of the destination.
-
-% FIXME (#459) there is no fragmentation if the packet is delivered through a local interface (e.g. loopback).
-%       check if this is correct. (Loopback IF has an MTU too.)
-
-% fragmentAndSend() (#425)
-% FIXME: when a fragment is fragmented, then 'Fragment Offset' is not set correctly (starts from 0, instead of the fragment's Fragment Offset)
-% FIXME: 'Fragment Offset' should be measured in 8-byte offsets! Now it is handled in byte units (and serialized so) 
-% FIXME: (#461) TTL<=0 should be checked in fragmentAndSend() before fragmenting. (sendDatagramToOutput only called from fragmentAndSend())
 
 \subsubsection*{Receiving packets}
 
@@ -338,9 +332,9 @@ generated, and the datagram is dropped.
 %       then the decapsulated packet should have the bit error.
 
 When the datagram does not contain error in the IP header,
-its \ttt{Time to Live} field is decremented and a routing decision
-is made. As a result of the routing the datagram is either
-delivered locally, or sent out one or more output interface.
+a routing decision is made. As a result of the routing
+the datagram is either delivered locally,
+or sent out one or more output interface.
 When it is sent out, the routing algorithm must compute the
 next hop of its route. The details are differ, depending on
 that the destination address is multicast address or not.
@@ -357,85 +351,100 @@ address if needed, and forwards the datagram to next hop.
 
 \subsubsection*{Unicast/broadcast routing}
 
-Datagrams having unicast or broadcast destination addresses are
+When the higher layer generated the datagram, it will be processed
+in these steps:
+\begin{enumerate}
+  \item If the destination is the address of a local interface,
+  then the datagram is locally delivered.
+  \item If the destination is the limited broadcast address, or a
+  local broadcast address, then it will be broadcasted on one or more
+  interface. If the higher layer specified am outgoing interface
+  (\fvar{interfaceId} in the control info), then it will be broadcasted
+  on that interface only. Otherwise if the \fpar{forceBroadcast} module
+  parameter is \fkeyword{true}, then it will broadcasted on all interfaces
+  including the loopback interface. The default value of the
+  \fpar{forceBroadcast} is \fkeyword{false}.
+  \item If the higher layer provided the routing decision (Manet routing),
+  then the datagram will be sent through the specified interface to the
+  specified next hop.
+  \item Otherwise IP finds the outgoing interface and the address of the
+  next hop by consulting the routing table, and sends the datagram
+  to the next hop. If no route
+  found, then a \ttt{Destination Unreachable} ICMP error is generated.
+\end{enumerate}
+
+
+Incoming datagrams having unicast or broadcast destination addresses are
 routed in the following steps:
 
 \begin{enumerate}
-  \item Process source routing options.
   \item Deliver datagram locally. If the destination address is a local
   address, the limited broadcast address (255.255.255.255), or a local
   broadcast address, then it will be sent to the transport layer.
   \item Drop packets received from the network when IP forwarding is disabled.
-  \item Route datagrams received from higher layer or network. There are
-  three cases:
-  \begin{enumerate}
-    \item The datagram comes from the transport layer and its destination is
-    the limited or a local broadcast address.
-    In this case the datagram is sent through the specified
-    broadcast interface. If the transport layer did not specify
-    the interface, then a copy of the datagram is sent through each interface
-    (except loopbacks).
-    (The \fpar{forceBroadcast} parameter must be \fkeyword{true} to enable this.) 
-    The next hop address will be 255.255.255.255, which is mapped to a link layer
-    broadcast address if the interface supports it. 
-    \item The datagram comes from the transport layer and the
-    transport protocol provided explicit routing (Manet routing).
-    If Manet routing is enabled, then the datagram will be sent
-    through the specified interface to the specified next hop.
-    If Manet routing is disabled or the next hop is not specified
-    (only the outgoing interface), then the datagram is sent through
-    that interface. If the specified interface is a broadcast interface,
-    then the next hop is computed by looking up the best route
-    from the routing table.
-    \item The datagram received from the network, or it comes from
-    the transport layer, but the outgoing interface is not specified.
-    In this case, the best route to the destination is looked up from the
-    routing table. The datagram forwarded to gateway of the
-    route or directly to the destination. If no route is found, then
+  \item Forward the datagram to the next hop. The next hop is
+    determined by looking up the best route to the destination from the
+    routing table. If the gateway is set in the route, then the datagram
+    will be forwarded to the gateway, otherwise it is sent directly to the
+    destination. If no route is found, then
     a \ttt{Destination Unreachable} ICMP error is sent to the source of the
     datagram.
-  \end{enumerate}
 \end{enumerate}
-
-% FIXME forceBroadcast branch is never reached (bug #366)
-% FIXME in forceBroadcast branch dataAux sould be passed to fragmentAndSend
-% FIXME (#458) local broadcasts from HL does not looped back, it is necessary because network cards do not receive the messages they send
-% FIXME (#457) when a broadcast message is locally delivered and its source address is unspecified,
-%       the destination address is copied to the source, before sending it up.
-%       But broadcast addresses are not allowed as source. (copy-paste bug?)
 
 \subsubsection*{Multicast routing}
 
-If the destination address of the datagram is a multicast address (category D address),
-then it is routed specially. The differences from normal routing rules are:
-\begin{itemize}
-  \item It can be delivered locally if the destination address
-  is in the multicast group of some interface.
-  \item The datagram is forwarded to each \emph{multicast route}
-  found in the routing table.
-\end{itemize}
+Outgoing multicast datagrams are handled as follows:
+\begin{enumerate}
+  \item If the higher layer set the \fvar{multicastLoop} variable
+  to \fkeyword{true}, the IP will send up a copy of the datagram
+  through the loopback interface.
+  \item Determine the outgoing interface for the multicast datagram,
+  and send out the datagram through that interface. The outgoing
+  interface is determined by the following rules:
+  \begin{compactenum}
+    \item if the HL specified the outgoing interface in the control
+    info, the it will be used
+    \item otherwise use the interface of the route configured in the
+    routing table for the destination address
+    \item if no route found, then use the interface whose address
+    matches the source address of the datagram
+    \item if the HL did not specify the source address, then use
+    the first multicast capable interface
+    \item if no such interface found, then the datagram is unroutable
+    and droppped
+  \end{compactenum}
+\end{enumerate}
+
+
+Incoming multicast datagrams are forwarded according to their source address
+(Reverse Path Forwarding), i.e. datagrams are sent away from their sources instead
+towards their destinations. The multicast routing table maintains a spanning tree
+for each source network and multicast group. The source network is the root of the
+tree, and there is a path to each LAN that has members of the multicast group.
+Each node expects the multicast datagram to arrive from their parent and forwards
+them towards their children. Multicast forwarding loops are avoided by dropping the
+datagrams not arrived on the parent interface.
 
 More specifically, the routing routine for multicast datagrams performs these steps:
 \begin{enumerate}
-  \item Discard packets that arrived at an interface that does not belong
-  to the best route to the source of the packet (i.e. did not arrived on the 
-  shortest path).
+  \item Deliver a copy of the datagram locally. If the interface on which
+  the datagram arrived belongs to the multicast group specified by the
+  destination address, it is sent up to the transport layer.
   \item Discard incoming packets that can not be delivered locally and
   can not be forwarded.
-  A non-local packet can not be forwarded if IP forwarding is disabled or the
-  destination is a link local multicast address (224.0.0.x).
-  \item Deliver the datagram locally. If the destination address of the
-  datagram belongs to a multicast group of any local interface, it is sent
-  up to the transport layer.
-  \item Forward the multicast datagram. If the packet comes from the
-  higher layer and its outgoing interface specified, then it is sent out
-  on the specified interface only (with next hop address = destitation address).
-  Otherwise a copy of the datagram is sent on each interface described by
-  multicast routes to the destination. In this case the next hop address will be
-  the gateway address of the route. If the original datagram is received
-  from the network, then it is not sent on the interface it arrived at.
+  A non-local packet can not be forwarded if multicast forwarding is disabled,
+  the destination is a link local multicast address (224.0.0.x), or
+  the TTL field reached 0.
+  \item Discard the packet if no multicast route found, or
+  if it did not arrive on the parent interface of the route
+  (to avoid multicast loops). If the parent is not set in the route,
+  then the shortest path interface to the source is assumed.
+  \item Forward the multicast datagram.
+  A copy of the datagram is sent on each child interface described by
+  multicast routes (except the incoming interface). Interfaces may have
+  a \fvar{ttlThreshold} parameter, that limits the scope of the multicast:
+  only datagrams with higher TTL are forwarded.
 \end{enumerate}
-        
 
 \subsection{Parameters}
 
@@ -748,7 +757,12 @@ so the NIC's entry in the \nedtype{InterfaceTable} should have \ffunc{isBroadcas
 set in order to participate in the address resolution.
 
 The incoming IP packet should have an attached \cppclass{IPv4RoutingDecision} control
-info containing the IP address of the next hop. If the hardware address is found
+info containing the IP address of the next hop. The next hop can be either an
+IPv4 broadcast/multicast or a unicast address. The corresponding MAC addresses
+can be computed for broadcast and multicast addresses (RFC 1122, 6.4); unicast
+addresses are mapped using the ARP procotol.
+
+If the hardware address is found
 in the ARP cache, then the packet is transmitted to the addressed interface immediately.
 Otherwise the packet is queued and an address resolution takes place.
 The \nedtype{ARP} module creates an \msgtype{ARPPacket} object, sets the sender
@@ -786,8 +800,6 @@ the simulation time saved in the entry. The mapping in the
 entry is not used after the configured \fpar{cacheTimeout}
 elapsed. This parameter does not affect the entries of
 the global cache however.
-
-% FIXME (#469) why the global cache is cleared when an ARP module is deleted?
 
 The module parameters of \nedtype{ARP} are:
 
@@ -1421,9 +1433,6 @@ will be proportional to $n^2$, and the time of the lookup of the
 best matching route will be proportional to $n$.
 \end{note}
 
-% FIXME (#465) shortest path calculation should exclude the nodes where IPForward is disabled.
-%       If the shortest path leads to a multihomed node in which IPForward is false, each datagram will be dropped.
-
 % FIXME weird FlatNetworkConfigurator behaviour.
 %       Assigned IP addresses does not mirror the hierachy of networks (e.g. each node in an Ethernet LAN handled as a one-element subnet).
 %       No gateway address is set in the routes, delivery relies on proxy ARPing.
@@ -1583,8 +1592,6 @@ The \nedtype{IPvXTrafGen} sends messages with length \fpar{packetLength}.
 The sent packet is emitted in the \fsignal{sentPk} signal.
 The length of the sent packets can be recorded as scalars and vectors.
 
-% FIXME (#468) packetLength declared as volatile, but in fact it is not.
-
 The \nedtype{IPvXTrafSink} can be used as a receiver of the packets
 generated by the traffic generator. This module emits the packet
 in the \fsignal{rcvdPacket} signal and drops it. The \ttt{rcvdPkBytes}
@@ -1614,8 +1621,9 @@ in the received ping responses' sequence number (e.g. 1, 2, 3, 5), then
 the missing pings (number 4 in this example) is counted as lost.
 Then if it still arrives later (that is, a reply with a sequence number
 smaller than the largest one received so far) it will be counted as
-out-of-sequence arrival. So the number of really lost pings will be
-"lost" minus "out-of-order" (assuming there's no duplicate or bogus reply).
+out-of-sequence arrival, and at the same time the number of losses is
+decremented. (It is assumed that the packet arrived was counted earlier as a loss,
+which is true if there are no duplicate packets.)
 
 Uses \msgtype{PingPayload} as payload for the ICMP(v6) Echo Request/Reply packets.
 
@@ -1630,20 +1638,18 @@ Uses \msgtype{PingPayload} as payload for the ICMP(v6) Echo Request/Reply packet
   \item \fpar{count}: stop after \fpar{count} ping request, 0 means continuously
   \item \fpar{startTime}: send first ping request at \fpar{startTime}
   \item \fpar{stopTime}: time of finish sending, 0 means forever
-  \item \fpar{printPing}: dump on stdout (default is \fkeyword{true})
+  \item \fpar{printPing}: dump on stdout (default is \fkeyword{false})
 \end{itemize}
 
 \subsubsection*{Signals and Statistics}
 
 \begin{itemize}
-  \item \fsignal{endToEndDelay} value of the round trip time
-  \item \fsignal{drop} number of dropped packets
-  \item \fsignal{outOfOrderArrival} number of packets arrived out-of-order
-  \item \fsignal{pingTx} sequence number of the sent ping request
-  \item \fsignal{pingRx} sequence number of the received ping response
+  \item \fsignal{rtt} value of the round trip time
+  \item \fsignal{numLost} number of lost packets
+  \item \fsignal{outOfOrderArrivals} number of packets arrived out-of-order
+  \item \fsignal{pingTxSeq} sequence number of the sent ping request
+  \item \fsignal{pingRxSeq} sequence number of the received ping response
 \end{itemize}
-
-\ttt{pingRTT} stat
 
 % FIXME seqNo should be part of ICMPMessage
 

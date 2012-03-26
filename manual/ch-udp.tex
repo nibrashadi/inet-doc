@@ -146,13 +146,13 @@ are used as destination address, all nodes in the multicast group or subnet rece
 The socket receives the broadcast packets only if it is configured for broadcast.
 To receive multicast messages, the socket must join to the group of the multicast address.
 This is done be sending the UDP module an UDP\_C\_SETOPTION message with
-\cppclass{UDPJoinMulticastGroupCommand} control info. The control info specifies the 
-multicast address and the interface identifier. If the interface identifier is given
+\cppclass{UDPJoinMulticastGroupsCommand} control info. The control info specifies the
+multicast addresses and the interface identifiers. If the interface identifier is given
 only those multicast packets are received that arrived at that interface.
 The socket can stop receiving multicast messages if it leaves the multicast group.
 For this purpose the application should send the UDP another UDP\_C\_SETOPTION
-message in their control info (\cppclass{UDPLeaveMulticastGroupCommand}) specifying
-the multicast address of that group.
+message in their control info (\cppclass{UDPLeaveMulticastGroupsCommand}) specifying
+the multicast addresses of the groups.
 
 % TODO clarify: multicast packets should not be delivered to connected sockets?
 

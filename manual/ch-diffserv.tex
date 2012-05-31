@@ -1,19 +1,55 @@
-\chapter{Differentiated Services Support}
+\chapter{Differentiated Services}
 \label{cha:diffserv}
 
 
 \section{Overview}
 
-Old IP provides best effort delivery
-Type of Service field
+In the early days of the Internet, only best effort service was defined.
+The Internet delivers individually each packet, and delivery time is not
+guaranteed, moreover packets may even be dropped due to congestion at
+the routers of the network. It was assumed that transport protocols,
+and applications can overcome these deficiencies. This worked until
+FTP and email was the main applications of the Internet, but the newer
+applications such as Internet telephony and video conferencing cannot
+tolerate delay jitter and loss of data.
 
-purpose of DiffServ, contrast with IntServ, resource provisioning instead of resource reservation
+% TypeOfService field
 
-domains, SLAs, core and edge routers
+The first attempt to add QoS capabilities to the IP routing was
+Integrated Services. Integrated services provide resource assurance
+through resource reservation for individual application flows.
+An application flow is identified by the source and destination
+addresses and ports and the protocol id. Before data packets are
+sent the necessary resources must be allocated along the path
+from the source to the destination. At the hops from the source
+to the destination each router must examine the packets, and decide
+if it belongs to a reserved application flow. This could cause a
+memory and processing demand in the routers.
+Other drawback is that
+the reservation must be periodically refreshed, so there is an overhead
+during the data transmission too.
 
-traffic conditioning and policing
+Differentiated Services is a more scalable approach to offer a better than
+best-effort service. Differentiated Services do not require resource reservation
+setup. Instead of making per-flow reservations, Differentiated
+Services divides the traffic into a small number of \emph{forwarding classes}.
+The forwarding class is directly encoded into the packet header. After packets are
+marked with their forwarding classes at the edge of the network, the interior nodes
+of the network can use this information to differentiate the treatment of packets.
+The forwarding classes may indicate drop priority and resource priority. For example,
+when a link is congested, the network will drop packets with the highest drop priority
+first.
 
-queueing disciplines
+In the Differentiated Service architecture, the network is partitioned into
+DiffServ domains. Within each domain the resources of the domain are allocated
+to forwarding classes, taking into account the available resources and the
+traffic flows. There are \emph{service level agggreements} (SLA) between the users
+and service providers, and between the domains that describe the mapping of
+packets to forwarding classes and the allowed traffic profile for each class.
+The routers at the edge of the network are responsible for marking the packets
+and protect the domain from misbehaving traffic sources. Nonconforming traffic
+may be dropped, delayed, or marked with a different forwarding class.
+
 
 \subsection{Implemented Standards}
 
@@ -295,7 +331,9 @@ bandwidth, then the rest is allocated to the other flows.
 
 Classifier modules have one input and many output gates.
 They examine the received packets, and forwards them to the
-appropriate output gates based on the fields of the packet.
+appropriate output gates based on the content of some portion
+of the packet header. You can read more about classifiers
+in RFC 2475 2.3.1 and RFC 3290 4.
 
 The \nedtype{inet.networklayer.diffserv} package contains two
 classifiers: \nedtype{MultiFieldClassifier} to classify
@@ -303,9 +341,10 @@ the packets at the edge routers of the DiffServ domain, and
 \nedtype{BehaviorAggregateClassifier} to classify the packets
 at the core routers.
 
-\subsection*{Multi-field Classifier}
 
-The \nedtype{MultiFieldClassifier} can be used to identify
+\subsubsection*{Multi-field Classifier}
+
+The \nedtype{MultiFieldClassifier} module can be used to identify
 micro-flows in the incoming traffic. The flow is identified
 by the source and destination addresses, the protocol id,
 and the source and destination ports of the IP packet.
@@ -319,20 +358,50 @@ determines the output gate, if there are no matching filters,
 then \fgate{defaultOut} is chosen.
 
 The configuration of the module is given as an XML document.
-For example:
-\begin{verbatim}
+The document element must contain a list of \ttt{<filter>} elements.
+The filter element has a mandatory \ttt{@gate} attribute that gives
+the index of the gate for packets matching the filter. Other attributes
+are optional and specify the condition of matching:
+\begin{compactitem}
+  \item \ttt{@srcAddress}, \ttt{@srcPrefixLength}: to match the source
+    address of the IP
+  \item \ttt{@destAddress}, \ttt{@destPrefixLength}:
+  \item \ttt{@protocol}: matches the protocol field of the IP packet.
+    Its value can be a name (e.g. ``udp'', ``tcp''),
+    or the numeric code of the protocol.
+  \item \ttt{@tos},{@tosMask}: matches bits of the TypeOfService/TrafficClass
+    field of the IP packet.
+  \item \ttt{@srcPort}: matches the source port of the TCP or UDP packet.
+  \item \ttt{@srcPortMin}, \ttt{@srcPortMax}: matches a range of source ports.
+  \item \ttt{@destPort}: matches the destination port of the TCP or UDP packet.
+  \item \ttt{@destPortMin}, \ttt{@destPortMax}: matches a range of
+     destination ports.
+\end{compactitem}
 
+The following example configuration specifies
+\begin{compactitem}
+  \item to transmit packets received from the 192.168.1.x subnet on gate 0,
+  \item to transmit packets addressed to port 5060 on gate 1,
+  \item to transmit packets having CS7 in their DSCP field on gate 2,
+  \item to transmit other packets on \fgate{defaultGate}.
+\end{compactitem}
+
+\begin{verbatim}
+<filters>
+  <filter srcAddress="192.168.1.0" srcPrefixLength="24" gate="0"/>
+  <filter protocol="udp" destPort="5060" gate="1"/>
+  <filter tos="0b00111000" tosMask="0x3f" gate="2"/>
+</filters>
 \end{verbatim}
  
-You can read more about multi-field classifiers in RFC 2475 2.3.1 and
-RFC 3290 4.2.2
-
 \subsubsection*{Behavior Aggregate Classifier}
 
-The \nedtype{BehaviorAggregateClassifier} can be used to read
+The \nedtype{BehaviorAggregateClassifier} module can be used to read
 the DSCP field from the IP datagram, and direct the packet to
 the corresponding output gate. The DSCP value is the lower
-six bits of the TypeOfService/TrafficClass field.
+six bits of the TypeOfService/TrafficClass field. Core routers
+usually use this classifier to guide the packet to the appropriate
+queue.
 
 DSCP values are enumerated in the \fpar{dscps} parameter.
 The first value is for gate \fgate{out[0]}, the second for
@@ -342,33 +411,63 @@ be forwarded to the \nedtype{defaultOut} gate.
 
 \subsection{Meters}
 
-blah-blah
+Meters classify the packets based on the temporal characteristics
+of their arrival. The arrival rate of packets is compared to an
+allowed traffic profile, and packets are decided to be green
+(in-profile) or red (out-of-profile). Some meters apply more than two
+conformance level, e.g. in three color meters the partially conforming
+packets are classified as yellow.
+
+The allowed traffic profile is usually specified by a token bucket.
+In this model, a bucket is filled in with tokens with a specified rate,
+until it reaches its maximum capacity. When a packet arrives, the
+bucket is examined. If it contains at least as many tokens as the
+length of the packet, then that tokens are removed, and the packet
+marked as conforming to the traffic profile. If the bucket contains
+less tokens than needed, it left unchanged, but the packet marked
+as non-conforming.
+
+% TODO implement color-aware metering
 
 \subsubsection*{TokenBucketMeter}
 
-The \nedtype{TokenBucketMeter} is a simple token bucket meter.
+The \nedtype{TokenBucketMeter} module implements a simple token bucket meter.
+The module has two output, one for green packets, and one for red packets.
+When a packet arrives, the gained tokens are added to the bucket, and
+the number of buckets equal to the size of the packet are subtracted.
 
 Packets are classified according to two parameters,
-Committed Information Rate (cir), Committed Burst Size (cbs),
+Committed Information Rate ($cir$), Committed Burst Size ($cbs$),
 to be either green, or red.
+
+Green traffic is guaranteed to be under $cir*(t_1-t_0)+cbs$ in
+every $[t_0,t_1]$ interval.
 
 \subsubsection*{SingleRateThreeColorMeter}
 
 The \nedtype{SingleRateThreeColorMeter} module implements a
 Single Rate Three Color Meter (RFC 2697).
- 
+The module has three output for green, yellow, and red packets.
+
 Packets are classified according to three parameters,
-Committed Information Rate (cir), Committed Burst Size (cbs),
-and Excess Burst Size (ebs), to be either green, yellow or red.
+Committed Information Rate ($cir$), Committed Burst Size ($cbs$),
+and Excess Burst Size ($ebs$), to be either green, yellow or red.
+The green traffic is guaranteed to be under $cir*(t_1-t_0)+cbs$,
+while the green+yellow traffic to be under $cir*(t_1-t_0)+cbs+ebs$
+in every $[t_0,t_1]$ interval.
+
 
 \subsubsection*{TwoRateThreeColorMeter}
 
 The \nedtype{TwoRateThreeColorMeter} module implements a
-Two Rate Three Color Meter (RFC 2698).
+Two Rate Three Color Meter (RFC 2698). The module has three output
+gates for the green, yellow, and red packets.
 
-It classifies the packets based on two rates, Peak Information Rate (PIR)
-and Committed Information Rate (CIR), and their associated burst sizes
-to be either green, yellow or red.
+It classifies the packets based on two rates, Peak Information Rate ($pir$)
+and Committed Information Rate ($cir$), and their associated burst sizes
+($pbs$ and $cbs$) to be either green, yellow or red. The green traffic
+is under $pir*(t_1-t_0)+pbs$ and $cir*(t_1-t_0)+cbs$, the yellow traffic
+is under $pir*(t_1-t_0)+pbs$ in every $[t_0,t_1]$ interval.
 
 \subsection{Markers}
 
@@ -400,7 +499,7 @@ For example the following lines are equivalent:
 
 \subsection{AFxyQueue}
 
-The \nedtype{AFxyQueue} is an example queue, that implements
+The \nedtype{AFxyQueue} module is an example queue, that implements
 one class of the Assured Forwarding PHB group (RFC 2597).
 
 Packets with the same AFx class, but different drop priorities
@@ -444,7 +543,189 @@ according to the specified weights.
 
 \section{Examples}
 
+% mention 'DiffServ examples' feature
 
+\subsection{Simple domain example}
+
+The \ffilename{examples/diffserv/simple\_} directory contains a
+simple demonstration of Diffserv QoS capabilities.
+
+\begin{center}
+\includegraphics[scale=0.3]{figures/SimpleDiffservNetwork.png}
+\end{center}
+
+The network contains a router with an 10Mbps Ethernet interface and a
+128kbps dialup link to a server. Clients are configured to generate
+high traffic, that causes congestion at the router PPP interface.
+One of the clients sends VoIP packets to the server.
+
+With the \ttt{VoIP\_WithoutQoS} configuration, the queue in the router PPP interface
+will be overloaded and packets are dropped randomly.
+
+With the \ttt{VoIP\_WithPolicing} configuration, the VoIP traffic is classified as EF
+traffic and the necessary bandwidth is allocated for it. The traffic conditioning
+is configured so, that packets generated by the other clients are dropped if they
+exceed the enabled rate.
+
+With the \ttt{VoIP\_WithPolicingAndQueuing} configuration, the VoIP traffic is classified as EF
+traffic and the necessary bandwidth is allocated for it. The router's queue is configured
+so that EF packets are prioritized over other packets, so lower delays are expected.
+
+After running these configuration you can see the statistics by opening the
+VoIP.anf file, or can hear the difference by comparing the recorded .wav files
+in the results directory.
+
+\subsection{One domain example}
+
+The \ffilename{examples/diffserv/onedomain} directory contains
+a network in which the routers constitute a single DiffServ domain.
+Several experiments are performed on this network, that demonstrates
+the resource allocation, and flow isolation capabilities of DiffServ
+network compared to the Best Effort service. It also shows the
+behavior of the differenct forwarding classes. These experiments
+reproduce the results obtained by an NS3 DiffServ implementation
+(\cite{Sanjay2010}).
+
+The network composed of 8 hosts and 6 routers.
+Hosts are connected to the routers by 100Mbps Ethernet links. The
+routers are connected by PPP lines with lower datarates.
+Traffic policing performed at the Ethernet interface of the edge
+routers (\ttt{R0},\ttt{R1},\ttt{R4},\ttt{R5}). By changing
+the queue module of the PPP interfaces, diverse per-hop behaviors
+can be instrumented.
+
+\begin{center}
+\includegraphics[scale=0.5]{figures/OneDomainDiffservNetwork.png}
+\end{center}
+
+Traffic flows from hosts \ttt{H1-H4} to hosts \ttt{H5-H8}. The source hosts
+configured to send voice and video data to the destinations hosts. The voice
+is sent by an \nedtype{UDPBacisBurst} application, with mean burst duration
+352ms, and mean sleep duration 650ms; this mirrors the talk/listen phases
+of a phone call. 172 bytes long packets (160 byte data + 12 byte RTP header)
+are sent in every 20ms in the burst phase. Considering the IP+UDP overhead,
+this results a 80kbps peek rate, and approximately 28kbps avarege rate for
+the voice traffic. The video streaming application is modeled by a ~100kbps
+CBR traffic, 500 bytes are sent in every 40ms by an \nedtype{UDPBasicApp}
+application.
+
+Traffic policing performed at the Ethernet interfaces of the edge routers
+(\ttt{R0},\ttt{R1},\ttt{R4},\ttt{R5}). For this purpose a traffic conditioner
+is added to the ingress data path of the Ethernet interfaces. The necessary
+forwarding behaviours are implemented by changing the external queue module
+of the PPP interfaces of routers.
+
+The following sections describe four experiments in detail. The experiments
+are numbered from 1 to 5, but 4 is omitted, to keep it consistent with the
+numbering in \cite{Sanjay2010}.
+The ini file define the configurations for each experiment. Configurations
+named \ttt{ExpXY} (where X and Y are digits) belong to Experiment X.
+After running each configuration, result can be evaluated by executing
+the \ffilename{ExperimentX.R} file with the
+\href{http://www.r-project.org}{R statistical program}.
+
+\subsubsection*{Experiment 1}
+
+This experiment shows how the resources of a network can be allocated
+to different forwarding classes, and also demontrates the effect of
+these allocation on the quality of the service.
+
+In configurations \ttt{Exp11-Exp15}, the traffic from hosts \ttt{H1-H4}
+are marked with different AFx1 classes at the edge routers. These
+forwarding classes are implemented by PPP queues using a WRR scheduler.
+The weights of the different forwarding classes are changed from the most
+polarized 7/6/5/4 to the least polarized 1/1/1/1. In the \ttt{Exp16}
+configuration, packets of the \ttt{H4} host are classified as EF, so
+they have higher priority at forwarding. The last configuration
+(\ttt{Exp17}), describing a Best Effort network, serves as a reference
+point for other measurements.
+
+Results shows that packets that belong to different AFxy forwarding classes get
+different treatments, and the differences are larger when the variance
+of the weights is larger. It also can be observed that EF packets
+receives much better treatment than others: they have no packet loss,
+and have a very low delay.
+
+\subsubsection*{Experiment 2}
+
+This experiment shows how the different drop precedencies of the AFxy
+forwarding classes can be implemented by RED queueing. In configurations
+\ttt{Exp21-Exp24}, hosts \ttt{H1-H3} sends the normal voice and video
+traffic, while \ttt{H4} sends only CBR traffic whose rate changes
+from 10kbps to 100kpbs in 10kpbs (so there is 10 measurement for each
+configuration). Packets from \ttt{H1-H3} are marked with
+increasing drop priority (i.e. \ttt{H1} traffic is forwarded as AF11,
+\ttt{H2} as AF12, and \ttt{H3} as AF13). The forwarding treatment
+of \ttt{H4} traffic is changing in the different
+configurations: AF11 in \ttt{Exp21}, AF12 in \ttt{Exp22}, and
+AF13 in \ttt{Exp23}. The \ttt{Exp24} configuration shows the behavior
+of a Best Effort network under the same traffic.
+
+\subsubsection*{Experiment 3}
+
+This experiment tests bandwidth utilization and flow isolation.
+Only hosts \ttt{H1} and \ttt{H2} generate traffic. \ttt{H1} has
+an extra \nedtype{UDPBasicApp} application, that generates a CBR
+traffic in addition to the voice and video streams. The rate of
+this extra traffic varies from 10kbps to 50kbps in 10kpbs steps
+in different measurements. Because the PPP links have only
+300kbps datarate, the link between \ttt{R2} and \ttt{R3} is
+congested when the extra traffic is high enough.
+
+With the first configuration (\ttt{Exp31}), both traffic policing
+and DiffServ queues are used. Traffic is metered at the egde routers
+by a token bucket meter. Packets whose rate is below 150kbps
+marked as AF11, the excess traffic is marked as AF12. RED queues
+in the network are configured so, that AF12 packets are dropped
+more aggressively than AF11 packets.
+
+With the second configuration (\ttt{Exp32}), only traffic policing
+is used. Packets whose rate exceeding the allowed 150kbps limit
+are dropped at the boundary of the domain. There is no differentiated
+forwarding treatment of packets inside the domain. Each packet goes
+to the same queue in the PPP interfaces of routers. They are simple
+drop tail queues with 200 frames capacity.
+
+The third configuration describes a Best Effort network.
+There is not traffic policing, and the PPP interfaces contain
+drop tail queues having buffer space for 200 frames.
+
+As it is expected, the bandwith utilization is high in the first
+and third case, but lower in the second case. On the other hand,
+the Best Effort network does not provide the same flow isolation
+as the DiffServ network. In the third case the well-behaving
+\ttt{H3} node suffers from the extra traffic generated by \ttt{H1}.
+
+\subsubsection*{Experiment 5}
+
+This experiment compares a DiffServ network and a Best Effort network.
+In the DiffServ network, all voice traffic is marked with EF class
+at the edge routers. The video traffic originating from \ttt{H1} and
+\ttt{H3} are marked with AF11, while video traffic from \ttt{H2} and
+\ttt{H4} are marked with AF21. Routers contain DiffServQueue that
+implements the EF and AFxy forwarding classes with priority queueing,
+and weighted round-robin queueing. The weight of AF11 is a bit larger,
+than the weight of AF21, so hosts \ttt{H1} and \ttt{H3} gets better
+services. The queues contain a 100 frame buffer capacity for each forwarding
+class.
+
+In the Best Effort network each PPP queue is a \nedtype{DropTailQueue}.
+The queue capacities are 200 frames, to keep the buffer space equal to
+the DiffServ case.
+
+In the DiffServ network, there is no loss of voice packets. Losses
+of video packets are smaller for \ttt{H1} and \ttt{H3} hosts, and
+higher for \ttt{H2} and \ttt{H4} than in a Best Effort network.
+This is expected, because DiffServ cannot increase the available
+resources, it only distributes them differently. It can also be
+observed, that the delay of voice packets are much smaller in the
+DiffServ network, so it can provide the necessary services for
+VoIP applications, while a Best Effort network can not.
+
+\subsection*{Multiple domains example}
+
+This example describes a real-world scenario, and shows how
+the SLAs can be implemented with the components offered by INET.
 
 %%% Local Variables:
 %%% mode: latex

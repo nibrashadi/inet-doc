@@ -440,7 +440,7 @@ Packets are classified according to two parameters,
 Committed Information Rate ($cir$), Committed Burst Size ($cbs$),
 to be either green, or red.
 
-Green traffic is guaranteed to be under $cir*(t_1-t_0)+cbs$ in
+Green traffic is guaranteed to be under $cir*(t_1-t_0)+8*cbs$ in
 every $[t_0,t_1]$ interval.
 
 \subsubsection*{SingleRateThreeColorMeter}
@@ -452,8 +452,8 @@ The module has three output for green, yellow, and red packets.
 Packets are classified according to three parameters,
 Committed Information Rate ($cir$), Committed Burst Size ($cbs$),
 and Excess Burst Size ($ebs$), to be either green, yellow or red.
-The green traffic is guaranteed to be under $cir*(t_1-t_0)+cbs$,
-while the green+yellow traffic to be under $cir*(t_1-t_0)+cbs+ebs$
+The green traffic is guaranteed to be under $cir*(t_1-t_0)+8*cbs$,
+while the green+yellow traffic to be under $cir*(t_1-t_0)+8*(cbs+ebs)$
 in every $[t_0,t_1]$ interval.
 
 
@@ -466,8 +466,8 @@ gates for the green, yellow, and red packets.
 It classifies the packets based on two rates, Peak Information Rate ($pir$)
 and Committed Information Rate ($cir$), and their associated burst sizes
 ($pbs$ and $cbs$) to be either green, yellow or red. The green traffic
-is under $pir*(t_1-t_0)+pbs$ and $cir*(t_1-t_0)+cbs$, the yellow traffic
-is under $pir*(t_1-t_0)+pbs$ in every $[t_0,t_1]$ interval.
+is under $pir*(t_1-t_0)+8*pbs$ and $cir*(t_1-t_0)+8*cbs$, the yellow traffic
+is under $pir*(t_1-t_0)+8*pbs$ in every $[t_0,t_1]$ interval.
 
 \subsection{Markers}
 
@@ -660,6 +660,11 @@ of \ttt{H4} traffic is changing in the different
 configurations: AF11 in \ttt{Exp21}, AF12 in \ttt{Exp22}, and
 AF13 in \ttt{Exp23}. The \ttt{Exp24} configuration shows the behavior
 of a Best Effort network under the same traffic.
+
+The plots shows that in the DiffServ network, there is no loss of
+AF11 traffic, and AF12 traffic loss is very low. The average queue
+length is lower in \ttt{Exp23}, because the red packets are dropped
+more likely.
 
 \subsubsection*{Experiment 3}
 

@@ -186,12 +186,12 @@ or probabilistic (e.g. RED queues).
 
 Other kind of droppers are absolute droppers; they drop each received
 packet. They can be used to discard excess traffic, i.e. packets whose
-arrival rate exceeeds the allowed maximum. In INET the \nedtype{Sink}
+arrival rate exceeds the allowed maximum. In INET the \nedtype{Sink}
 module can be used as an absolute dropper.
 
-The algorithmic droppers in INET are \nedtype{ThresoldDropper} and
+The algorithmic droppers in INET are \nedtype{ThresholdDropper} and
 \nedtype{REDDropper}. These modules has multiple input and multiple
-output gates. Packets are arrived in gate \fgate{in[i]} are forwarded
+output gates. Packets that arrive on gate \fgate{in[i]} are forwarded
 to gate \fgate{out[i]} (unless they are dropped). However the queues
 attached to the output gates are viewed as a whole, i.e. the queue
 length parameter of the dropping algorithm is the sum of the individual
@@ -210,7 +210,7 @@ The module sums the buffer lengths of its outputs
 and if enqueuing a packet would exceed the configured
 capacities, then the packet will be dropped instead.
 
-Be attaching a \nedtype{ThresholdDropper} to the input of a FIFO
+By attaching a \nedtype{ThresholdDropper} to the input of a FIFO
 queue, you can compose a drop tail queue. Shared buffer
 space can be modeled by attaching more FIFO queues
 to the output.
@@ -221,8 +221,8 @@ The \nedtype{REDDropper} module implements Random Early Detection
 (\cite{Floyd93randomearly}).
 
 It has $n$ input and $n$ output gates (specified by the
-\fpar{numGates} parameter). Packets arrived at the ith input
-gate are forwarded to the ith output gate, or dropped.
+\fpar{numGates} parameter). Packets that arrive at the $i^{th}$ input
+gate are forwarded to the $i^{th}$ output gate, or dropped.
 The output gates must be connected to simple modules implementing
 the \nedtype{IQueueAccess} C++ interface (e.g. \nedtype{FIFOQueue}).
 
@@ -268,17 +268,17 @@ can be used to implement different packet drop priorities.
 
 \subsection{Schedulers}
 
-Schedulers modules decide which queue can send a packet, when the
+Scheduler modules decide which queue can send a packet, when the
 interface is ready to transmit one. They have several input gates
 and one output gate.
 
-Modules that are connected to the inputs of schedulers must
+Modules that are connected to the inputs of a scheduler must
 implement the \cppclass{IPassiveQueue} C++ interface.
 Schedulers also implement \cppclass{IPassiveQueue}, so
 they can be cascaded to other schedulers, and can be used
 as the output module of \nedtype{IOutputQueue}s.
 
-There are many possible scheduling discipline (first come/first served,
+There are several possible scheduling discipline (first come/first served,
 priority, weighted fair, weighted round-robin, deadline-based,
 rate-based). INET contains implementation
 of priority and weighted round-robin schedulers.
@@ -286,11 +286,11 @@ of priority and weighted round-robin schedulers.
 \subsubsection{Priority Scheduler}
 
 The \nedtype{PriorityScheduler} module implements a strict priority
-scheduler. Packets arrived in \fgate{in[0]} has the highest priority,
-then packets arrived in \fgate{in[1]}, and so on. If more packets
+scheduler. Packets that arrived on \fgate{in[0]} has the highest priority,
+then packets arrived on \fgate{in[1]}, and so on. If more packets
 available when one is requested, then the one with highest priority
 is chosen. Packets with lower priority are transmitted only when
-there are no packets on the inputs of higher priorities.
+there are no packets on the inputs with higher priorities.
 
 \nedtype{PriorityScheduler} must be used with care, because a
 large volume of higher packets can starve lower priority packets.
@@ -312,9 +312,9 @@ are 3, 2, and 1, then packets are transmitted in this order:
 \begin{verbatim}
 A, A, A, B, B, C, A, A, A, B, B, C, ...
 \end{verbatim}
-where A packets arrived in \fgate{in[0]}, B packets in \fgate{in[1]},
-and C packets in \fgate{in[2]}. If there are no packet in the current
-one when a packet is requested, then the next is chosen that has
+where A packets arrived on \fgate{in[0]}, B packets on \fgate{in[1]},
+and C packets on \fgate{in[2]}. If there are no packets in the current
+one when a packet is requested, then the next one is chosen that has
 enough tokens.
 
 If the size of the packets are equal, then \nedtype{WRRScheduler}
@@ -330,8 +330,8 @@ bandwidth, then the rest is allocated to the other flows.
 \subsection{Classifiers}
 
 Classifier modules have one input and many output gates.
-They examine the received packets, and forwards them to the
-appropriate output gates based on the content of some portion
+They examine the received packets, and forward them to the
+appropriate output gate based on the content of some portion
 of the packet header. You can read more about classifiers
 in RFC 2475 2.3.1 and RFC 3290 4.
 
@@ -434,7 +434,7 @@ as non-conforming.
 The \nedtype{TokenBucketMeter} module implements a simple token bucket meter.
 The module has two output, one for green packets, and one for red packets.
 When a packet arrives, the gained tokens are added to the bucket, and
-the number of buckets equal to the size of the packet are subtracted.
+the number of tokens equal to the size of the packet are subtracted.
 
 Packets are classified according to two parameters,
 Committed Information Rate ($cir$), Committed Burst Size ($cbs$),
@@ -510,7 +510,7 @@ drop them, based on the average length of the queue and the RED parameters
 of the drop priority of the packet.
 
 The afxyMinth, afxyMaxth, and afxyMaxp parameters must have values that
-ensures that packets with lower drop priorities are dropped with lower
+ensure that packets with lower drop priorities are dropped with lower
 or equal probability than packets with higher drop priorities.
 
 \subsection{DiffservQeueue}
@@ -582,7 +582,7 @@ a network in which the routers constitute a single DiffServ domain.
 Several experiments are performed on this network, that demonstrates
 the resource allocation, and flow isolation capabilities of DiffServ
 network compared to the Best Effort service. It also shows the
-behavior of the differenct forwarding classes. These experiments
+behavior of the different forwarding classes. These experiments
 reproduce the results obtained by an NS3 DiffServ implementation
 (\cite{Sanjay2010}).
 

@@ -1,6 +1,22 @@
 How to build the manual on Windows (on Linux it's easier)
 =========================================================
 
+Linux:
+======
+Prerequisites
+-------------
+1. Install the 'texlive' package
+
+2a. You may install the 'texlive-science' package, however recent distros still contain
+    old 1.x versions of the bytefield package so the buil process may not work.
+    (we need 2.x version)
+
+2b. Install the bytefield package manually into a local folder:
+    - copy the texmf folder in this directory to your $HOME dir
+    - change to your $HOME dir and execute 'texhash texmf'
+
+Windows:
+========
 Prerequisites
 -------------
 1. Install MiKTex from miktex.org. The "basic" package is enough.

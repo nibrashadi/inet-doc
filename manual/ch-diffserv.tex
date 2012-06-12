@@ -427,7 +427,18 @@ marked as conforming to the traffic profile. If the bucket contains
 less tokens than needed, it left unchanged, but the packet marked
 as non-conforming.
 
-% TODO implement color-aware metering
+Meters has two modes: color-blind and color-aware.
+In color-blind mode, the color assigned by a previous meter does not
+affect the classification of the packet in subsequent meters.
+In color-aware mode, the color of the packet can not be changed to a less
+conforming color: if a packet is classified as non-conforming by a meter,
+it also handled as non-conforming in later meters in the data path.
+
+\begin{important}
+Meters take into account the length of the IP packet only, L2 headers are omitted
+from the length calculation. If they receive a packet which is not
+an IP datagram and does not encapsulate an IP datagram, an error occurs.
+\end{important}
 
 \subsubsection*{TokenBucketMeter}
 
